@@ -1,0 +1,14 @@
+{
+  "products": [
+    {
+      "id": "sample",
+      "title": "Sample Daraz Product",
+      "url": "https://www.daraz.lk/products/sample-i1-s1.html",
+      "observedPrice": {
+        "currency": "LKR",
+        "minorUnits": 100000
+      },
+      "quantity": 1
+    }
+  ]
+}

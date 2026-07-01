@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.turbo/
+.cache/
+coverage/
+runs/
+.carttruth/
+.env
+.env.*
+!.env.example
+playwright-report/
+test-results/

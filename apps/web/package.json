@@ -1,0 +1,10 @@
+{
+  "name": "@carttruth/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "api": "tsx src/server.ts --api-only",
+    "dev": "tsx src/server.ts"
+  }
+}
