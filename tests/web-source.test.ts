@@ -15,6 +15,8 @@ describe("Daraz dashboard source", () => {
     expect(source).toContain("Settings");
     expect(source).toContain("Auto Price Checking");
     expect(source).toContain("Daraz Credentials");
+    expect(source).toContain("TorchProxies Network");
+    expect(source).toContain("Proxy Operations");
     expect(source).toContain("Final checkout price check queued.");
     expect(source).toContain("Auto-login credentials saved. CartTruth will try to reconnect before checking.");
     expect(source).toContain("Reconnecting to Daraz");
@@ -32,7 +34,6 @@ describe("Daraz dashboard source", () => {
   it("does not expose old advanced terms in the normal UI", async () => {
     const source = await readFile("apps/web/src/main.tsx", "utf8");
     expect(source).not.toContain("Walmart");
-    expect(source).not.toContain("proxy");
     expect(source).not.toContain("tolerance");
     expect(source).not.toContain("Mock");
   });

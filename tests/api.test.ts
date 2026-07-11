@@ -246,16 +246,33 @@ describe("Daraz API", () => {
     const settings = await get("/api/settings");
     expect(settings.autoPriceCheckEnabled).toBe(false);
     expect(settings.autoPriceCheckIntervalHours).toBe(24);
+    expect(settings.proxyCountryPreference).toBe("US");
     expect(settings.autoPriceCheckNextRunAt).toBeUndefined();
 
     const updated = await patch("/api/settings", {
       autoPriceCheckEnabled: true,
-      autoPriceCheckIntervalHours: 2
+      autoPriceCheckIntervalHours: 2,
+      proxyCountryPreference: "gb"
     });
 
     expect(updated.autoPriceCheckEnabled).toBe(true);
     expect(updated.autoPriceCheckIntervalHours).toBe(2);
+    expect(updated.proxyCountryPreference).toBe("GB");
     expect(new Date(updated.autoPriceCheckNextRunAt).getMinutes()).toBe(0);
+  });
+
+  it("shows masked proxy status to logged-in users", async () => {
+    const status = await get("/api/proxy/status");
+
+    expect(status.proxy).toEqual(expect.objectContaining({
+      enabled: true,
+      source: "torchproxies",
+      poolType: "isp",
+      country: "US",
+      masked: "http://user_abc:***@proxy.example:61234"
+    }));
+    expect(status.countryOptions).toContain("LK");
+    expect(JSON.stringify(status)).not.toContain("secret");
   });
 
   it("anchors auto price check intervals to local midnight", () => {
@@ -453,6 +470,47 @@ describe("Daraz API", () => {
     expect(response.error).toBe("Login required.");
     cookie = previous;
   });
+
+  it("records local proxy events and exposes admin proxy summaries without secrets", async () => {
+    await post("/api/daraz/search", { query: "phone" });
+
+    const summary = await get("/api/admin/proxy/summary");
+    const events = await get("/api/admin/proxy/events?limit=5");
+
+    expect(summary.proxy.masked).toBe("http://user_abc:***@proxy.example:61234");
+    expect(summary.events.total).toBeGreaterThan(0);
+    expect(summary.events.bySource.some((item: { key: string; count: number }) => item.key === "web" && item.count > 0)).toBe(true);
+    expect(summary.external.provider).toBe("torchproxies");
+    expect(events.events[0]).toEqual(expect.objectContaining({
+      operation: "daraz_search",
+      source: "web",
+      status: "success",
+      proxyCountry: "US"
+    }));
+    expect(JSON.stringify({ summary, events })).not.toContain("secret");
+  });
+
+  it("protects proxy test and admin proxy telemetry endpoints", async () => {
+    const adminCookie = cookie;
+    cookie = "";
+    const missing = await postRaw("/api/proxy/test", {});
+    expect(missing.status).toBe(401);
+
+    cookie = await loginWithGoogle({
+      sub: "buyer-proxy-sub",
+      email: "buyer-proxy@example.com",
+      emailVerified: true,
+      displayName: "Buyer Proxy"
+    });
+    const deniedLegacyTest = await postRaw("/api/proxy/test", {});
+    const deniedAdminTest = await postRaw("/api/admin/proxy/test", {});
+    const deniedSummary = await fetch(`${baseUrl}/api/admin/proxy/summary`, { headers: { cookie } });
+
+    expect(deniedLegacyTest.status).toBe(403);
+    expect(deniedAdminTest.status).toBe(403);
+    expect(deniedSummary.status).toBe(403);
+    cookie = adminCookie;
+  });
 });
 
 describe("Automation API and MCP", () => {
@@ -496,10 +554,13 @@ describe("Automation API and MCP", () => {
 
     const updatedSettings = await apiPatch("/api/v1/settings", createdKey.token, {
       autoPriceCheckEnabled: true,
-      autoPriceCheckIntervalHours: 4
+      autoPriceCheckIntervalHours: 4,
+      proxyCountryPreference: "SG"
     });
     expect(updatedSettings.autoPriceCheckEnabled).toBe(true);
     expect(updatedSettings.autoPriceCheckIntervalHours).toBe(4);
+    expect(updatedSettings.proxyCountryPreference).toBe("SG");
+    expect(runtime.store.listProxyEvents(20).some((event) => event.source === "rest" && event.apiKeyPrefix === createdKey.apiKey.tokenPrefix)).toBe(true);
 
     await post("/api/daraz/credentials", {
       username: "buyer@example.com",

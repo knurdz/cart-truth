@@ -18,7 +18,7 @@ import {
 } from "./auth.js";
 import { requestId } from "./logger.js";
 import { createMcpRequestHandler } from "./mcp.js";
-import { DarazSessionActionRequiredError, type LocalRuntime } from "./runtime.js";
+import { DarazSessionActionRequiredError, TORCH_PROXY_COUNTRY_OPTIONS, type LocalRuntime, type RuntimeProxyEventContext } from "./runtime.js";
 import type { ApiKeyRecord, ApiKeyScope, AppUser } from "./store.js";
 
 const DarazSearchBodySchema = z.object({
@@ -31,7 +31,8 @@ const DarazProductLinkBodySchema = z.object({
 
 const UserSettingsBodySchema = z.object({
   autoPriceCheckEnabled: z.boolean().optional(),
-  autoPriceCheckIntervalHours: z.number().int().min(1).max(24).optional()
+  autoPriceCheckIntervalHours: z.number().int().min(1).max(24).optional(),
+  proxyCountryPreference: z.string().trim().regex(/^[A-Za-z]{2}$/).transform((value) => value.toUpperCase()).optional()
 });
 
 const ApiKeyScopesSchema = z.array(z.enum(["rest", "mcp"])).min(1);
@@ -46,6 +47,11 @@ const ApiKeyUpdateBodySchema = z.object({
   scopes: ApiKeyScopesSchema.optional()
 }).refine((value) => value.name !== undefined || value.scopes !== undefined, {
   message: "Provide a name or scopes."
+});
+
+const ProxyTestBodySchema = z.object({
+  url: z.string().url().optional(),
+  timeoutMs: z.number().int().positive().max(60000).optional()
 });
 
 const OAUTH_STATE_COOKIE = "carttruth_oauth_state";
@@ -247,13 +253,59 @@ export function createApiApp(runtime: LocalRuntime): Express {
     }
   });
 
-  app.post("/api/proxy/test", async (request, response, next) => {
+  app.get("/api/proxy/status", requireUser(runtime), (_request, response) => {
+    response.json({
+      proxy: runtime.proxyStatus(),
+      countryOptions: TORCH_PROXY_COUNTRY_OPTIONS
+    });
+  });
+
+  app.get("/api/admin/proxy/summary", requireAdmin(runtime), (_request, response) => {
+    response.json({
+      proxy: runtime.proxyStatus(),
+      events: runtime.store.proxyEventSummary(),
+      external: {
+        provider: "torchproxies",
+        apiConfigured: Boolean(process.env.TORCHPROXIES_API_KEY),
+        syncStatus: process.env.TORCHPROXIES_API_KEY ? "credentials_configured_not_synced" : "not_configured",
+        note: "TorchProxies dashboard/API data is not fetched until account credentials and endpoint contracts are confirmed."
+      },
+      countryOptions: TORCH_PROXY_COUNTRY_OPTIONS
+    });
+  });
+
+  app.get("/api/admin/proxy/events", requireAdmin(runtime), (request, response, next) => {
     try {
-      const body = z.object({
-        url: z.string().url().optional(),
-        timeoutMs: z.number().int().positive().max(60000).optional()
-      }).parse(request.body ?? {});
-      response.json(await runtime.testProxy(body.url, body.timeoutMs));
+      const query = z.object({
+        limit: z.coerce.number().int().min(1).max(200).optional()
+      }).parse(request.query);
+      response.json({ events: runtime.store.listProxyEvents(query.limit ?? 50) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/proxy/test", requireAdmin(runtime), async (request, response, next) => {
+    try {
+      const body = ProxyTestBodySchema.parse(request.body ?? {});
+      response.json(await runtime.testProxy(body.url, body.timeoutMs, {
+        source: "web",
+        userId: request.user.id,
+        operation: "admin_proxy_connectivity_test"
+      }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/proxy/test", requireAdmin(runtime), async (request, response, next) => {
+    try {
+      const body = ProxyTestBodySchema.parse(request.body ?? {});
+      response.json(await runtime.testProxy(body.url, body.timeoutMs, {
+        source: "web",
+        userId: request.user.id,
+        operation: "admin_proxy_connectivity_test"
+      }));
     } catch (error) {
       next(error);
     }
@@ -268,7 +320,8 @@ export function createApiApp(runtime: LocalRuntime): Express {
       const body = UserSettingsBodySchema.parse(request.body ?? {});
       response.json(runtime.updateSettingsForUser(request.user.id, {
         ...(body.autoPriceCheckEnabled !== undefined ? { autoPriceCheckEnabled: body.autoPriceCheckEnabled } : {}),
-        ...(body.autoPriceCheckIntervalHours !== undefined ? { autoPriceCheckIntervalHours: body.autoPriceCheckIntervalHours } : {})
+        ...(body.autoPriceCheckIntervalHours !== undefined ? { autoPriceCheckIntervalHours: body.autoPriceCheckIntervalHours } : {}),
+        ...(body.proxyCountryPreference !== undefined ? { proxyCountryPreference: body.proxyCountryPreference } : {})
       }));
     } catch (error) {
       next(error);
@@ -282,7 +335,7 @@ export function createApiApp(runtime: LocalRuntime): Express {
   app.post("/api/daraz/search", requireUser(runtime), async (request, response, next) => {
     try {
       const body = DarazSearchBodySchema.parse(request.body);
-      response.json({ results: await runtime.searchDaraz(request.user.id, body.query) });
+      response.json({ results: await runtime.searchDaraz(request.user.id, body.query, webProxyContext()) });
     } catch (error) {
       next(error);
     }
@@ -291,7 +344,7 @@ export function createApiApp(runtime: LocalRuntime): Express {
   app.post("/api/daraz/product", requireUser(runtime), async (request, response, next) => {
     try {
       const body = DarazProductLinkBodySchema.parse(request.body);
-      response.json({ product: await runtime.findDarazProduct(request.user.id, body.url) });
+      response.json({ product: await runtime.findDarazProduct(request.user.id, body.url, webProxyContext()) });
     } catch (error) {
       next(error);
     }
@@ -370,7 +423,7 @@ export function createApiApp(runtime: LocalRuntime): Express {
   app.post("/api/daraz/check", requireUser(runtime), async (request, response, next) => {
     try {
       const body = DarazCheckRequestSchema.parse(request.body);
-      const result = await runtime.checkDaraz(request.user.id, body);
+      const result = await runtime.checkDaraz(request.user.id, body, webProxyContext());
       response.status(result.status === "checked" ? 200 : 202).json(result);
     } catch (error) {
       next(error);
@@ -415,7 +468,7 @@ export function createApiApp(runtime: LocalRuntime): Express {
   app.post("/api/links", requireUser(runtime), async (request, response, next) => {
     try {
       const body = DarazProductLinkBodySchema.parse(request.body);
-      const link = await runtime.addSavedLink(request.user.id, body.url);
+      const link = await runtime.addSavedLink(request.user.id, body.url, webProxyContext());
       const checkJob = runtime.enqueueSavedLinkCheck(request.user.id, "link_added", [link.id]);
       response.status(201).json({
         link,
@@ -467,7 +520,7 @@ export function createApiApp(runtime: LocalRuntime): Express {
   app.post("/api/links/check", requireUser(runtime), async (request, response, next) => {
     try {
       const body = z.object({ linkIds: z.array(z.string().min(1)).optional() }).parse(request.body ?? {});
-      const result = await runtime.checkSavedLinks(request.user.id, body.linkIds);
+      const result = await runtime.checkSavedLinks(request.user.id, body.linkIds, webProxyContext());
       response.status(result.status === "checked" ? 200 : 202).json(result);
     } catch (error) {
       if (error instanceof DarazSessionActionRequiredError) {
@@ -499,7 +552,8 @@ export function createApiApp(runtime: LocalRuntime): Express {
       const body = UserSettingsBodySchema.parse(request.body ?? {});
       response.json(runtime.updateSettingsForUser(request.apiUser.id, {
         ...(body.autoPriceCheckEnabled !== undefined ? { autoPriceCheckEnabled: body.autoPriceCheckEnabled } : {}),
-        ...(body.autoPriceCheckIntervalHours !== undefined ? { autoPriceCheckIntervalHours: body.autoPriceCheckIntervalHours } : {})
+        ...(body.autoPriceCheckIntervalHours !== undefined ? { autoPriceCheckIntervalHours: body.autoPriceCheckIntervalHours } : {}),
+        ...(body.proxyCountryPreference !== undefined ? { proxyCountryPreference: body.proxyCountryPreference } : {})
       }));
     } catch (error) {
       next(error);
@@ -513,7 +567,7 @@ export function createApiApp(runtime: LocalRuntime): Express {
   publicApi.post("/links", enforceApiKeyRateLimit(restTaskLimiter), async (request, response, next) => {
     try {
       const body = DarazProductLinkBodySchema.parse(request.body);
-      const link = await runtime.addSavedLink(request.apiUser.id, body.url);
+      const link = await runtime.addSavedLink(request.apiUser.id, body.url, apiKeyProxyContext(request.apiKey));
       const checkJob = runtime.enqueueSavedLinkCheck(request.apiUser.id, "link_added", [link.id]);
       response.status(201).json({ link, checkJob: publicPriceCheckJob(checkJob) });
     } catch (error) {
@@ -644,6 +698,14 @@ function currentUser(runtime: LocalRuntime, request: express.Request): AppUser |
     return undefined;
   }
   return runtime.store.findSessionByToken(token)?.user;
+}
+
+function webProxyContext(): RuntimeProxyEventContext {
+  return { source: "web" };
+}
+
+function apiKeyProxyContext(apiKey: ApiKeyRecord): RuntimeProxyEventContext {
+  return { source: "rest", apiKey };
 }
 
 function requireUser(runtime: LocalRuntime) {

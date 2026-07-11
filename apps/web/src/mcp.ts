@@ -3,7 +3,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
-import type { LocalRuntime } from "./runtime.js";
+import type { ApiKeyRecord } from "./store.js";
+import type { LocalRuntime, RuntimeProxyEventContext } from "./runtime.js";
 
 const instructions = [
   "CartTruth checks saved Daraz product links and final checkout prices for the authenticated user.",
@@ -14,7 +15,7 @@ const instructions = [
 
 export function createMcpRequestHandler(runtime: LocalRuntime) {
   return async (request: express.Request, response: express.Response, next: express.NextFunction) => {
-    const server = createCartTruthMcpServer(runtime, request.apiUser.id);
+    const server = createCartTruthMcpServer(runtime, request.apiUser.id, request.apiKey);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined
     } as unknown as ConstructorParameters<typeof StreamableHTTPServerTransport>[0]);
@@ -33,7 +34,7 @@ export function createMcpRequestHandler(runtime: LocalRuntime) {
   };
 }
 
-function createCartTruthMcpServer(runtime: LocalRuntime, userId: string): McpServer {
+function createCartTruthMcpServer(runtime: LocalRuntime, userId: string, apiKey: ApiKeyRecord): McpServer {
   const server = new McpServer({
     name: "carttruth",
     version: "0.1.0"
@@ -53,7 +54,7 @@ function createCartTruthMcpServer(runtime: LocalRuntime, userId: string): McpSer
       url: z.string().url()
     }
   }, async ({ url }) => {
-    const link = await runtime.addSavedLink(userId, url);
+    const link = await runtime.addSavedLink(userId, url, mcpProxyContext(apiKey));
     const checkJob = runtime.enqueueSavedLinkCheck(userId, "link_added", [link.id]);
     return jsonResult({ link, checkJob: publicMcpPriceCheckJob(checkJob) });
   });
@@ -79,11 +80,13 @@ function createCartTruthMcpServer(runtime: LocalRuntime, userId: string): McpSer
     description: "Update automatic price-check settings for the authenticated user.",
     inputSchema: {
       autoPriceCheckEnabled: z.boolean().optional(),
-      autoPriceCheckIntervalHours: z.number().int().min(1).max(24).optional()
+      autoPriceCheckIntervalHours: z.number().int().min(1).max(24).optional(),
+      proxyCountryPreference: z.string().regex(/^[A-Za-z]{2}$/).optional()
     }
   }, async (input) => jsonResult(runtime.updateSettingsForUser(userId, {
     ...(input.autoPriceCheckEnabled !== undefined ? { autoPriceCheckEnabled: input.autoPriceCheckEnabled } : {}),
-    ...(input.autoPriceCheckIntervalHours !== undefined ? { autoPriceCheckIntervalHours: input.autoPriceCheckIntervalHours } : {})
+    ...(input.autoPriceCheckIntervalHours !== undefined ? { autoPriceCheckIntervalHours: input.autoPriceCheckIntervalHours } : {}),
+    ...(input.proxyCountryPreference !== undefined ? { proxyCountryPreference: input.proxyCountryPreference } : {})
   })));
 
   server.registerTool("carttruth_queue_check", {
@@ -144,6 +147,10 @@ function jsonResult(value: unknown) {
       text: JSON.stringify(value, null, 2)
     }]
   };
+}
+
+function mcpProxyContext(apiKey: ApiKeyRecord): RuntimeProxyEventContext {
+  return { source: "mcp", apiKey };
 }
 
 function publicMcpPriceCheckJob(job: {

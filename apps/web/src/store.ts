@@ -80,6 +80,7 @@ export interface UserSettings {
   userId: string;
   autoPriceCheckEnabled: boolean;
   autoPriceCheckIntervalHours: number;
+  proxyCountryPreference: string;
   autoPriceCheckNextRunAt?: string;
   autoPriceCheckLastRunAt?: string;
   autoPriceCheckLastJobId?: string;
@@ -101,6 +102,35 @@ export interface PriceCheckJob {
   startedAt?: string;
   finishedAt?: string;
   updatedAt: string;
+}
+
+export type ProxyEventSource = "web" | "rest" | "mcp" | "scheduled" | "system";
+export type ProxyEventStatus = "success" | "failure" | "blocked" | "skipped";
+
+export interface ProxyEventRecord {
+  id: string;
+  operation: string;
+  userId?: string;
+  apiKeyId?: string;
+  apiKeyPrefix?: string;
+  source: ProxyEventSource;
+  proxyFingerprint: string;
+  proxyCountry?: string;
+  proxySource?: string;
+  proxyPoolType?: string;
+  status: ProxyEventStatus;
+  elapsedMs?: number;
+  errorMessage?: string;
+  createdAt: string;
+}
+
+export interface ProxyEventSummary {
+  total: number;
+  apiKeyEvents: number;
+  lastEvent?: ProxyEventRecord;
+  byStatus: Array<{ key: ProxyEventStatus; count: number }>;
+  bySource: Array<{ key: ProxyEventSource; count: number }>;
+  byCountry: Array<{ key: string; count: number }>;
 }
 
 interface SqlRow {
@@ -194,6 +224,7 @@ export class AppStore {
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         auto_price_check_enabled INTEGER NOT NULL DEFAULT 0,
         auto_price_check_interval_hours INTEGER NOT NULL DEFAULT 24,
+        proxy_country_preference TEXT,
         auto_price_check_next_run_at TEXT,
         auto_price_check_last_run_at TEXT,
         auto_price_check_last_job_id TEXT,
@@ -216,12 +247,30 @@ export class AppStore {
         finished_at TEXT,
         updated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS proxy_events (
+        id TEXT PRIMARY KEY,
+        operation TEXT NOT NULL,
+        user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        api_key_id TEXT,
+        api_key_prefix TEXT,
+        source TEXT NOT NULL CHECK (source IN ('web', 'rest', 'mcp', 'scheduled', 'system')),
+        proxy_fingerprint TEXT NOT NULL,
+        proxy_country TEXT,
+        proxy_source TEXT,
+        proxy_pool_type TEXT,
+        status TEXT NOT NULL CHECK (status IN ('success', 'failure', 'blocked', 'skipped')),
+        elapsed_ms INTEGER,
+        error_message TEXT,
+        created_at TEXT NOT NULL
+      );
     `);
-    this.addUserColumnIfMissing("google_sub", "TEXT");
-    this.addUserColumnIfMissing("email", "TEXT");
-    this.addUserColumnIfMissing("email_normalized", "TEXT");
-    this.addUserColumnIfMissing("display_name", "TEXT");
-    this.addUserColumnIfMissing("avatar_url", "TEXT");
+    this.addColumnIfMissing("users", "google_sub", "TEXT");
+    this.addColumnIfMissing("users", "email", "TEXT");
+    this.addColumnIfMissing("users", "email_normalized", "TEXT");
+    this.addColumnIfMissing("users", "display_name", "TEXT");
+    this.addColumnIfMissing("users", "avatar_url", "TEXT");
+    this.addColumnIfMissing("user_settings", "proxy_country_preference", "TEXT");
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_unique
         ON users(google_sub)
@@ -239,6 +288,15 @@ export class AppStore {
 
       CREATE INDEX IF NOT EXISTS api_keys_user_idx
         ON api_keys(user_id, revoked_at, created_at);
+
+      CREATE INDEX IF NOT EXISTS proxy_events_created_idx
+        ON proxy_events(created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS proxy_events_api_key_idx
+        ON proxy_events(api_key_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS proxy_events_source_idx
+        ON proxy_events(source, status, created_at DESC);
     `);
   }
 
@@ -677,24 +735,30 @@ export class AppStore {
     this.db.prepare("DELETE FROM daraz_credentials WHERE user_id = ?").run(userId);
   }
 
-  getUserSettings(userId: string): UserSettings {
+  getUserSettings(userId: string, defaultProxyCountry = "US"): UserSettings {
     const existing = this.db.prepare("SELECT * FROM user_settings WHERE user_id = ?").get(userId) as SqlRow | undefined;
     if (existing) {
+      if (!existing.proxy_country_preference) {
+        this.db.prepare("UPDATE user_settings SET proxy_country_preference = ?, updated_at = ? WHERE user_id = ?")
+          .run(normalizeProxyCountry(defaultProxyCountry), new Date().toISOString(), userId);
+        return this.getUserSettings(userId, defaultProxyCountry);
+      }
       return mapUserSettings(existing);
     }
 
     const now = new Date().toISOString();
     this.db.prepare(`
-      INSERT INTO user_settings (user_id, auto_price_check_enabled, auto_price_check_interval_hours, updated_at)
-      VALUES (?, 0, 24, ?)
-    `).run(userId, now);
-    return this.getUserSettings(userId);
+      INSERT INTO user_settings (user_id, auto_price_check_enabled, auto_price_check_interval_hours, proxy_country_preference, updated_at)
+      VALUES (?, 0, 24, ?, ?)
+    `).run(userId, normalizeProxyCountry(defaultProxyCountry), now);
+    return this.getUserSettings(userId, defaultProxyCountry);
   }
 
   updateUserSettings(userId: string, input: {
     autoPriceCheckEnabled?: boolean;
     autoPriceCheckIntervalHours?: number;
     autoPriceCheckNextRunAt?: string | null;
+    proxyCountryPreference?: string;
   }): UserSettings {
     const current = this.getUserSettings(userId);
     const now = new Date().toISOString();
@@ -703,12 +767,14 @@ export class AppStore {
       UPDATE user_settings
       SET auto_price_check_enabled = ?,
           auto_price_check_interval_hours = ?,
+          proxy_country_preference = ?,
           auto_price_check_next_run_at = ?,
           updated_at = ?
       WHERE user_id = ?
     `).run(
       enabled ? 1 : 0,
       input.autoPriceCheckIntervalHours ?? current.autoPriceCheckIntervalHours,
+      input.proxyCountryPreference ? normalizeProxyCountry(input.proxyCountryPreference) : current.proxyCountryPreference,
       input.autoPriceCheckNextRunAt === undefined ? current.autoPriceCheckNextRunAt ?? null : input.autoPriceCheckNextRunAt,
       now,
       userId
@@ -840,12 +906,99 @@ export class AppStore {
     `).run(now);
   }
 
-  private addUserColumnIfMissing(name: string, type: string): void {
-    const columns = this.db.prepare("PRAGMA table_info(users)").all() as Array<{ name?: string }>;
+  recordProxyEvent(input: {
+    operation: string;
+    userId?: string;
+    apiKeyId?: string;
+    apiKeyPrefix?: string;
+    source: ProxyEventSource;
+    proxyFingerprint: string;
+    proxyCountry?: string;
+    proxySource?: string;
+    proxyPoolType?: string;
+    status: ProxyEventStatus;
+    elapsedMs?: number;
+    errorMessage?: string;
+  }): ProxyEventRecord {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO proxy_events (
+        id,
+        operation,
+        user_id,
+        api_key_id,
+        api_key_prefix,
+        source,
+        proxy_fingerprint,
+        proxy_country,
+        proxy_source,
+        proxy_pool_type,
+        status,
+        elapsed_ms,
+        error_message,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      input.operation,
+      input.userId ?? null,
+      input.apiKeyId ?? null,
+      input.apiKeyPrefix ?? null,
+      input.source,
+      input.proxyFingerprint,
+      input.proxyCountry ?? null,
+      input.proxySource ?? null,
+      input.proxyPoolType ?? null,
+      input.status,
+      input.elapsedMs ?? null,
+      input.errorMessage ? input.errorMessage.slice(0, 500) : null,
+      now
+    );
+    return this.listProxyEvents(1)[0]!;
+  }
+
+  listProxyEvents(limit = 50): ProxyEventRecord[] {
+    return this.db.prepare(`
+      SELECT * FROM proxy_events
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(Math.max(1, Math.min(limit, 500))).map(mapProxyEvent);
+  }
+
+  proxyEventSummary(): ProxyEventSummary {
+    const countRow = this.db.prepare("SELECT COUNT(*) AS count FROM proxy_events").get() as SqlRow;
+    const apiKeyRow = this.db.prepare("SELECT COUNT(*) AS count FROM proxy_events WHERE api_key_id IS NOT NULL").get() as SqlRow;
+    const lastEvent = this.listProxyEvents(1)[0];
+    return {
+      total: Number(countRow.count ?? 0),
+      apiKeyEvents: Number(apiKeyRow.count ?? 0),
+      ...(lastEvent ? { lastEvent } : {}),
+      byStatus: this.countProxyEventsBy("status").map((item) => ({ key: item.key as ProxyEventStatus, count: item.count })),
+      bySource: this.countProxyEventsBy("source").map((item) => ({ key: item.key as ProxyEventSource, count: item.count })),
+      byCountry: this.countProxyEventsBy("proxy_country").map((item) => ({ key: item.key || "unknown", count: item.count }))
+    };
+  }
+
+  private countProxyEventsBy(column: "status" | "source" | "proxy_country"): Array<{ key: string; count: number }> {
+    return this.db.prepare(`
+      SELECT COALESCE(${column}, '') AS key, COUNT(*) AS count
+      FROM proxy_events
+      GROUP BY COALESCE(${column}, '')
+      ORDER BY count DESC, key ASC
+    `).all().map((row) => {
+      const item = row as SqlRow;
+      return { key: String(item.key ?? ""), count: Number(item.count ?? 0) };
+    });
+  }
+
+  private addColumnIfMissing(table: "users" | "user_settings", name: string, type: string): void {
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
     if (columns.some((column) => column.name === name)) {
       return;
     }
-    this.db.exec(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
   }
 }
 
@@ -871,6 +1024,11 @@ export function normalizeApiKeyScopes(scopes: ApiKeyScope[]): ApiKeyScope[] {
     throw new Error("Select at least one API key scope.");
   }
   return normalized;
+}
+
+function normalizeProxyCountry(country: string): string {
+  const normalized = country.trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(normalized) ? normalized : "US";
 }
 
 function mapUser(row: SqlRow): AppUser {
@@ -940,12 +1098,32 @@ function mapUserSettings(row: SqlRow): UserSettings {
     userId: String(row.user_id),
     autoPriceCheckEnabled: Number(row.auto_price_check_enabled ?? 0) === 1,
     autoPriceCheckIntervalHours: Number(row.auto_price_check_interval_hours ?? 24),
+    proxyCountryPreference: normalizeProxyCountry(String(row.proxy_country_preference ?? "US")),
     ...(row.auto_price_check_next_run_at ? { autoPriceCheckNextRunAt: String(row.auto_price_check_next_run_at) } : {}),
     ...(row.auto_price_check_last_run_at ? { autoPriceCheckLastRunAt: String(row.auto_price_check_last_run_at) } : {}),
     ...(row.auto_price_check_last_job_id ? { autoPriceCheckLastJobId: String(row.auto_price_check_last_job_id) } : {}),
     ...(row.auto_price_check_last_status ? { autoPriceCheckLastStatus: String(row.auto_price_check_last_status) as PriceCheckJobStatus } : {}),
     ...(row.auto_price_check_last_message ? { autoPriceCheckLastMessage: String(row.auto_price_check_last_message) } : {}),
     updatedAt: String(row.updated_at)
+  };
+}
+
+function mapProxyEvent(row: SqlRow): ProxyEventRecord {
+  return {
+    id: String(row.id),
+    operation: String(row.operation),
+    ...(row.user_id ? { userId: String(row.user_id) } : {}),
+    ...(row.api_key_id ? { apiKeyId: String(row.api_key_id) } : {}),
+    ...(row.api_key_prefix ? { apiKeyPrefix: String(row.api_key_prefix) } : {}),
+    source: String(row.source) as ProxyEventSource,
+    proxyFingerprint: String(row.proxy_fingerprint),
+    ...(row.proxy_country ? { proxyCountry: String(row.proxy_country) } : {}),
+    ...(row.proxy_source ? { proxySource: String(row.proxy_source) } : {}),
+    ...(row.proxy_pool_type ? { proxyPoolType: String(row.proxy_pool_type) } : {}),
+    status: String(row.status) as ProxyEventStatus,
+    ...(row.elapsed_ms !== null && row.elapsed_ms !== undefined ? { elapsedMs: Number(row.elapsed_ms) } : {}),
+    ...(row.error_message ? { errorMessage: String(row.error_message) } : {}),
+    createdAt: String(row.created_at)
   };
 }
 

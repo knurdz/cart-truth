@@ -40,9 +40,11 @@ import { createGoogleOAuthClientFromEnv, decryptSecret, googleAdminEmails, roleF
 import {
   AppStore,
   savedLinkToProduct,
+  type ApiKeyRecord,
   type AppUser,
   type PriceCheckJob,
   type PriceCheckJobSource,
+  type ProxyEventSource,
   type UserSettings,
   type SavedLink
 } from "./store.js";
@@ -53,6 +55,24 @@ interface DarazChecker {
   productFromUrl(url: string): Promise<DarazSearchResult>;
   check(request: DarazCheckRequest): Promise<DarazCheckResult>;
 }
+
+export const TORCH_PROXY_COUNTRY_OPTIONS = [
+  "US",
+  "GB",
+  "CA",
+  "AU",
+  "DE",
+  "FR",
+  "NL",
+  "SG",
+  "IN",
+  "LK"
+] as const;
+
+export type RuntimeProxyEventContext = {
+  source: ProxyEventSource;
+  apiKey?: Pick<ApiKeyRecord, "id" | "tokenPrefix">;
+};
 
 export interface RuntimeOptions {
   runsDir?: string;
@@ -124,21 +144,21 @@ export class LocalRuntime {
     return roleForGoogleEmail(email);
   }
 
-  async searchDaraz(userId: string, query: string): Promise<DarazSearchResult[]> {
+  async searchDaraz(userId: string, query: string, context?: RuntimeProxyEventContext): Promise<DarazSearchResult[]> {
     this.logger.debug("daraz search requested", { userId, query });
-    return this.darazServiceForUser(userId).search(query);
+    return this.withProxyTelemetry("daraz_search", userId, context, () => this.darazServiceForUser(userId).search(query));
   }
 
-  async findDarazProduct(userId: string, url: string): Promise<DarazSearchResult> {
+  async findDarazProduct(userId: string, url: string, context?: RuntimeProxyEventContext): Promise<DarazSearchResult> {
     this.logger.debug("daraz product lookup requested", { userId, url });
-    return this.darazServiceForUser(userId).productFromUrl(url);
+    return this.withProxyTelemetry("daraz_product_lookup", userId, context, () => this.darazServiceForUser(userId).productFromUrl(url));
   }
 
-  async checkDaraz(userId: string, rawRequest: DarazCheckRequestInput): Promise<DarazCheckResult> {
+  async checkDaraz(userId: string, rawRequest: DarazCheckRequestInput, context?: RuntimeProxyEventContext): Promise<DarazCheckResult> {
     return this.withDarazUserLock(userId, "check", async () => {
       const request = DarazCheckRequestSchema.parse(rawRequest);
       this.logger.info("daraz check started", { userId, productCount: request.products.length });
-      const result = await this.darazServiceForUser(userId).check(request);
+      const result = await this.withProxyTelemetry("daraz_checkout_check", userId, context, () => this.darazServiceForUser(userId).check(request));
       this.store.recordRun(userId, result);
       this.updateSavedLinksFromResult(userId, result);
       this.logger.info("daraz check finished", { userId, runId: result.runId, status: result.status });
@@ -146,7 +166,7 @@ export class LocalRuntime {
     });
   }
 
-  async checkSavedLinks(userId: string, linkIds?: string[]): Promise<DarazCheckResult> {
+  async checkSavedLinks(userId: string, linkIds?: string[], context?: RuntimeProxyEventContext): Promise<DarazCheckResult> {
     const links = this.store.listSavedLinks(userId).filter((link) => !linkIds || linkIds.includes(link.id));
     if (links.length === 0) {
       throw new Error("Add at least one saved Daraz link first.");
@@ -154,10 +174,10 @@ export class LocalRuntime {
     await this.ensureDarazSessionForUser(userId);
     return this.checkDaraz(userId, {
       products: links.map((link) => ({ ...savedLinkToProduct(link), quantity: 1 }))
-    });
+    }, context);
   }
 
-  async checkSavedLink(userId: string, linkId: string): Promise<DarazCheckResult> {
+  async checkSavedLink(userId: string, linkId: string, context?: RuntimeProxyEventContext): Promise<DarazCheckResult> {
     const link = this.store.getSavedLink(userId, linkId);
     if (!link) {
       throw new Error("Saved Daraz link not found.");
@@ -165,28 +185,29 @@ export class LocalRuntime {
     await this.ensureDarazSessionForUser(userId);
     return this.checkDaraz(userId, {
       products: [{ ...savedLinkToProduct(link), quantity: 1 }]
-    });
+    }, context);
   }
 
-  async addSavedLink(userId: string, url: string): Promise<SavedLink> {
-    const product = await this.findDarazProduct(userId, url);
+  async addSavedLink(userId: string, url: string, context?: RuntimeProxyEventContext): Promise<SavedLink> {
+    const product = await this.findDarazProduct(userId, url, context);
     const link = this.store.upsertSavedLink(userId, product);
     this.logger.info("saved daraz link", { userId, linkId: link.id, url: link.url });
     return link;
   }
 
   settingsForUser(userId: string): UserSettings {
-    return this.store.getUserSettings(userId);
+    return this.store.getUserSettings(userId, this.proxyProfile?.country ?? "US");
   }
 
-  updateSettingsForUser(userId: string, input: { autoPriceCheckEnabled?: boolean; autoPriceCheckIntervalHours?: number }): UserSettings {
-    const current = this.store.getUserSettings(userId);
+  updateSettingsForUser(userId: string, input: { autoPriceCheckEnabled?: boolean; autoPriceCheckIntervalHours?: number; proxyCountryPreference?: string }): UserSettings {
+    const current = this.store.getUserSettings(userId, this.proxyProfile?.country ?? "US");
     const enabled = input.autoPriceCheckEnabled ?? current.autoPriceCheckEnabled;
     const intervalHours = input.autoPriceCheckIntervalHours ?? current.autoPriceCheckIntervalHours;
     const nextRunAt = enabled ? nextScheduledPriceCheckAt(new Date(), intervalHours).toISOString() : null;
     return this.store.updateUserSettings(userId, {
       autoPriceCheckEnabled: enabled,
       autoPriceCheckIntervalHours: intervalHours,
+      ...(input.proxyCountryPreference ? { proxyCountryPreference: input.proxyCountryPreference } : {}),
       autoPriceCheckNextRunAt: nextRunAt
     });
   }
@@ -391,17 +412,28 @@ export class LocalRuntime {
     return proxySummary(this.proxyProfile);
   }
 
-  async testProxy(url?: string, timeoutMs?: number) {
+  async testProxy(url?: string, timeoutMs?: number, context?: RuntimeProxyEventContext & { userId?: string; operation?: string }) {
+    const started = Date.now();
+    const operation = context?.operation ?? "proxy_connectivity_test";
     if (!this.proxyProfile) {
-      return {
+      const result = {
         ok: false,
         status: 0,
         bodyPreview: "No proxy configured.",
         elapsedMs: 0,
         proxy: "none"
       };
+      this.recordProxyEvent(operation, context?.userId, context, "skipped", Date.now() - started);
+      return result;
     }
-    return testProxyConnectivity(this.proxyProfile, url, timeoutMs);
+    try {
+      const result = await testProxyConnectivity(this.proxyProfile, url, timeoutMs);
+      this.recordProxyEvent(operation, context?.userId, context, result.ok ? "success" : "failure", result.elapsedMs, result.ok ? undefined : `HTTP ${result.status}`);
+      return result;
+    } catch (error) {
+      this.recordProxyEvent(operation, context?.userId, context, "failure", Date.now() - started, errorMessage(error));
+      throw error;
+    }
   }
 
   async close() {
@@ -541,7 +573,7 @@ export class LocalRuntime {
       await this.ensureDarazSessionForUser(job.userId);
       const result = await this.checkDaraz(job.userId, {
         products: links.map((link) => ({ ...savedLinkToProduct(link), quantity: 1 }))
-      });
+      }, { source: job.source === "scheduled" ? "scheduled" : "web" });
       const finished = this.store.finishPriceCheckJob(job.id, {
         status: "completed",
         runId: result.runId,
@@ -599,6 +631,47 @@ export class LocalRuntime {
     }
   }
 
+  private async withProxyTelemetry<T>(
+    operation: string,
+    userId: string,
+    context: RuntimeProxyEventContext | undefined,
+    action: () => Promise<T>
+  ): Promise<T> {
+    const started = Date.now();
+    try {
+      const result = await action();
+      this.recordProxyEvent(operation, userId, context, this.proxyProfile ? "success" : "skipped", Date.now() - started);
+      return result;
+    } catch (error) {
+      this.recordProxyEvent(operation, userId, context, "failure", Date.now() - started, errorMessage(error));
+      throw error;
+    }
+  }
+
+  private recordProxyEvent(
+    operation: string,
+    userId: string | undefined,
+    context: RuntimeProxyEventContext | undefined,
+    status: "success" | "failure" | "blocked" | "skipped",
+    elapsedMs: number,
+    error?: string
+  ): void {
+    const summary = this.proxyStatus();
+    this.store.recordProxyEvent({
+      operation,
+      ...(userId ? { userId } : {}),
+      ...(context?.apiKey ? { apiKeyId: context.apiKey.id, apiKeyPrefix: context.apiKey.tokenPrefix } : {}),
+      source: context?.source ?? "web",
+      proxyFingerprint: summary.fingerprint,
+      ...(summary.country ? { proxyCountry: summary.country } : {}),
+      ...(summary.source ? { proxySource: summary.source } : {}),
+      ...(summary.poolType ? { proxyPoolType: summary.poolType } : {}),
+      status,
+      elapsedMs,
+      ...(error ? { errorMessage: error } : {})
+    });
+  }
+
   private async withDarazUserLock<T>(userId: string, operation: string, action: () => Promise<T>): Promise<T> {
     const previous = this.darazUserLocks.get(userId) ?? Promise.resolve();
     let release!: () => void;
@@ -621,6 +694,10 @@ export class LocalRuntime {
       this.logger.debug("daraz_user_lock_released", { userId, operation, elapsedMs: Date.now() - startedAt });
     }
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export class DarazSessionActionRequiredError extends Error {

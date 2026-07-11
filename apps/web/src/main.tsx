@@ -100,12 +100,64 @@ type DarazCredentialStatus = {
 type UserSettings = {
   autoPriceCheckEnabled: boolean;
   autoPriceCheckIntervalHours: number;
+  proxyCountryPreference: string;
   autoPriceCheckNextRunAt?: string;
   autoPriceCheckLastRunAt?: string;
   autoPriceCheckLastJobId?: string;
   autoPriceCheckLastStatus?: PriceCheckJob["status"];
   autoPriceCheckLastMessage?: string;
   updatedAt: string;
+};
+
+type ProxySummary = {
+  enabled: boolean;
+  fingerprint: string;
+  id?: string;
+  source?: string;
+  poolType?: string;
+  country?: string;
+  masked?: string;
+};
+
+type ProxyEvent = {
+  id: string;
+  operation: string;
+  userId?: string;
+  apiKeyId?: string;
+  apiKeyPrefix?: string;
+  source: "web" | "rest" | "mcp" | "scheduled" | "system";
+  proxyFingerprint: string;
+  proxyCountry?: string;
+  proxySource?: string;
+  proxyPoolType?: string;
+  status: "success" | "failure" | "blocked" | "skipped";
+  elapsedMs?: number;
+  errorMessage?: string;
+  createdAt: string;
+};
+
+type ProxyEventSummary = {
+  total: number;
+  apiKeyEvents: number;
+  lastEvent?: ProxyEvent;
+  byStatus: Array<{ key: ProxyEvent["status"]; count: number }>;
+  bySource: Array<{ key: ProxyEvent["source"]; count: number }>;
+  byCountry: Array<{ key: string; count: number }>;
+};
+
+type ProxyStatusResponse = {
+  proxy: ProxySummary;
+  countryOptions: string[];
+};
+
+type AdminProxySummary = ProxyStatusResponse & {
+  events: ProxyEventSummary;
+  external: {
+    provider: string;
+    apiConfigured: boolean;
+    syncStatus: string;
+    note: string;
+  };
 };
 
 type PriceCheckJob = {
@@ -222,6 +274,10 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
 
 function AdminPanel() {
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [proxySummary, setProxySummary] = useState<AdminProxySummary | undefined>();
+  const [proxyEvents, setProxyEvents] = useState<ProxyEvent[]>([]);
+  const [proxyTest, setProxyTest] = useState<{ ok: boolean; status: number; elapsedMs: number; proxy: string; bodyPreview: string } | undefined>();
+  const [testingProxy, setTestingProxy] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -229,8 +285,14 @@ function AdminPanel() {
   }, []);
 
   async function refresh() {
-    const response = await fetchJson<{ users: AppUser[] }>("/api/admin/users");
+    const [response, proxy, events] = await Promise.all([
+      fetchJson<{ users: AppUser[] }>("/api/admin/users"),
+      fetchJson<AdminProxySummary>("/api/admin/proxy/summary"),
+      fetchJson<{ events: ProxyEvent[] }>("/api/admin/proxy/events?limit=12")
+    ]);
     setUsers(response.users);
+    setProxySummary(proxy);
+    setProxyEvents(events.events);
   }
 
   async function setDisabled(userId: string, disabled: boolean) {
@@ -239,43 +301,133 @@ function AdminPanel() {
     await refresh();
   }
 
+  async function testProxy() {
+    setTestingProxy(true);
+    setMessage("");
+    try {
+      const result = await postJson<{ ok: boolean; status: number; elapsedMs: number; proxy: string; bodyPreview: string }>("/api/admin/proxy/test", { timeoutMs: 10000 });
+      setProxyTest(result);
+      setMessage(result.ok ? "Proxy connectivity test completed." : "Proxy connectivity test returned a non-OK response.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+      await refresh().catch(() => undefined);
+    } finally {
+      setTestingProxy(false);
+    }
+  }
+
   return (
-    <section className="price-section">
-      <div className="section-title">
-        <h2>Users</h2>
-      </div>
-      {message && <p className="message">{message}</p>}
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Created</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((item) => (
-              <tr key={item.id}>
-                <td>{item.displayName ?? item.email ?? item.username}</td>
-                <td>{item.email ?? "Legacy password user"}</td>
-                <td>{item.role}</td>
-                <td>{item.disabled ? "disabled" : "active"}</td>
-                <td>{new Date(item.createdAt).toLocaleString()}</td>
-                <td>
-                  <button type="button" className="text-button" onClick={() => void setDisabled(item.id, !item.disabled)}>
-                    {item.disabled ? "Enable" : "Disable"}
-                  </button>
-                </td>
+    <>
+      <section className="admin-grid">
+        <section className="price-section">
+          <div className="section-title">
+            <h2>Users</h2>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.displayName ?? item.email ?? item.username}</td>
+                    <td>{item.email ?? "Legacy password user"}</td>
+                    <td>{item.role}</td>
+                    <td>{item.disabled ? "disabled" : "active"}</td>
+                    <td>{new Date(item.createdAt).toLocaleString()}</td>
+                    <td>
+                      <button type="button" className="text-button" onClick={() => void setDisabled(item.id, !item.disabled)}>
+                        {item.disabled ? "Enable" : "Disable"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="price-section proxy-admin-panel">
+          <div className="section-title">
+            <h2>Proxy Operations</h2>
+            <span className={`status ${proxySummary?.proxy.enabled ? "checked" : "needs_attention"}`}>
+              {proxySummary?.proxy.enabled ? "TorchProxies configured" : "setup required"}
+            </span>
+          </div>
+          <div className="proxy-facts">
+            <p><span>Provider</span><strong>{proxySummary?.proxy.source ?? "not configured"}</strong></p>
+            <p><span>Profile</span><strong>{proxySummary?.proxy.id ?? "none"}</strong></p>
+            <p><span>Pool</span><strong>{proxySummary?.proxy.poolType ?? "unknown"}</strong></p>
+            <p><span>Country</span><strong>{proxySummary?.proxy.country ?? "unknown"}</strong></p>
+            <p><span>Endpoint</span><strong>{proxySummary?.proxy.masked ?? "none"}</strong></p>
+          </div>
+          <div className="proxy-metrics">
+            <Metric label="Events" value={String(proxySummary?.events.total ?? 0)} />
+            <Metric label="API key events" value={String(proxySummary?.events.apiKeyEvents ?? 0)} />
+            <Metric label="External API" value={proxySummary?.external.apiConfigured ? "configured" : "not configured"} />
+          </div>
+          <button type="button" className="light-button" disabled={testingProxy} onClick={() => void testProxy()}>
+            {testingProxy ? "Testing..." : "Run proxy test"}
+          </button>
+          {proxyTest && (
+            <p className="message">
+              Last test: {proxyTest.ok ? "OK" : "Failed"} ({proxyTest.status}) in {proxyTest.elapsedMs}ms via {proxyTest.proxy}
+            </p>
+          )}
+          <p className="message">{proxySummary?.external.note}</p>
+        </section>
+      </section>
+
+      <section className="price-section">
+        <div className="section-title">
+          <h2>Recent proxy events</h2>
+          <button type="button" className="text-button" onClick={() => void refresh()}>Refresh</button>
+        </div>
+        {message && <p className="message">{message}</p>}
+        <div className="event-summary">
+          <Metric label="Status" value={formatCounts(proxySummary?.events.byStatus)} />
+          <Metric label="Source" value={formatCounts(proxySummary?.events.bySource)} />
+          <Metric label="Country" value={formatCounts(proxySummary?.events.byCountry)} />
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Operation</th>
+                <th>Source</th>
+                <th>Status</th>
+                <th>Proxy</th>
+                <th>API key</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
+            </thead>
+            <tbody>
+              {proxyEvents.length === 0 ? (
+                <tr><td colSpan={6}>No proxy events yet.</td></tr>
+              ) : proxyEvents.map((event) => (
+                <tr key={event.id}>
+                  <td>{new Date(event.createdAt).toLocaleString()}</td>
+                  <td>{event.operation}{event.errorMessage && <small>{event.errorMessage}</small>}</td>
+                  <td>{event.source}</td>
+                  <td>{event.status}{event.elapsedMs !== undefined && <small>{event.elapsedMs}ms</small>}</td>
+                  <td>{event.proxySource ?? "none"} / {event.proxyPoolType ?? "unknown"} / {event.proxyCountry ?? "unknown"}</td>
+                  <td>{event.apiKeyPrefix ?? "none"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -538,6 +690,12 @@ function UserPanel() {
 
 function SettingsPanel() {
   const [settings, setSettings] = useState<UserSettings | undefined>();
+  const [proxyStatus, setProxyStatus] = useState<ProxySummary | undefined>();
+  const [countryOptions, setCountryOptions] = useState<string[]>(["US", "GB", "CA", "AU", "DE", "FR", "NL", "SG", "IN", "LK"]);
+  const [proxyCountry, setProxyCountry] = useState("US");
+  const [stickyPreview, setStickyPreview] = useState(true);
+  const [rotatePreview, setRotatePreview] = useState(false);
+  const [fallbackPreview, setFallbackPreview] = useState(true);
   const [credentials, setCredentials] = useState<DarazCredentialStatus>({ saved: false });
   const [darazUsername, setDarazUsername] = useState("");
   const [darazPassword, setDarazPassword] = useState("");
@@ -550,13 +708,17 @@ function SettingsPanel() {
   }, []);
 
   async function refresh() {
-    const [settingsResponse, credentialStatus] = await Promise.all([
+    const [settingsResponse, credentialStatus, proxyResponse] = await Promise.all([
       fetchJson<UserSettings>("/api/settings"),
-      fetchJson<DarazCredentialStatus>("/api/daraz/credentials")
+      fetchJson<DarazCredentialStatus>("/api/daraz/credentials"),
+      fetchJson<ProxyStatusResponse>("/api/proxy/status")
     ]);
     setSettings(settingsResponse);
     setAutoEnabled(settingsResponse.autoPriceCheckEnabled);
     setIntervalHours(settingsResponse.autoPriceCheckIntervalHours);
+    setProxyCountry(settingsResponse.proxyCountryPreference);
+    setProxyStatus(proxyResponse.proxy);
+    setCountryOptions(proxyResponse.countryOptions);
     setCredentials(credentialStatus);
     setDarazUsername(credentialStatus.username ?? "");
   }
@@ -566,9 +728,11 @@ function SettingsPanel() {
     try {
       const updated = await patchJson<UserSettings>("/api/settings", {
         autoPriceCheckEnabled: autoEnabled,
-        autoPriceCheckIntervalHours: intervalHours
+        autoPriceCheckIntervalHours: intervalHours,
+        proxyCountryPreference: proxyCountry
       });
       setSettings(updated);
+      setProxyCountry(updated.proxyCountryPreference);
       setMessage("Settings saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -638,6 +802,48 @@ function SettingsPanel() {
           </p>
         )}
         {message && <p className="message">{message}</p>}
+      </section>
+
+      <section className="price-section">
+        <div className="section-title">
+          <h2>TorchProxies Network</h2>
+          <span className={`status ${proxyStatus?.enabled ? "checked" : "needs_attention"}`}>
+            {proxyStatus?.enabled ? "TorchProxies configured" : "setup required"}
+          </span>
+        </div>
+        <div className="proxy-facts">
+          <p><span>Active profile</span><strong>{proxyStatus?.id ?? "none"}</strong></p>
+          <p><span>Pool</span><strong>{proxyStatus?.poolType ?? "unknown"}</strong></p>
+          <p><span>Active country</span><strong>{proxyStatus?.country ?? "unknown"}</strong></p>
+          <p><span>Endpoint</span><strong>{proxyStatus?.masked ?? "none"}</strong></p>
+        </div>
+        <form className="settings-form proxy-preview-form" onSubmit={(event) => void saveSettings(event)}>
+          <label>
+            Requested country
+            <select value={proxyCountry} onChange={(event) => setProxyCountry(event.target.value)}>
+              {countryOptions.map((country) => (
+                <option key={country} value={country}>{countryLabel(country)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="checkbox-row">
+            <input type="checkbox" checked={stickyPreview} onChange={(event) => setStickyPreview(event.target.checked)} />
+            <span>Sticky checkout session</span>
+          </label>
+          <label className="checkbox-row">
+            <input type="checkbox" checked={rotatePreview} onChange={(event) => setRotatePreview(event.target.checked)} />
+            <span>Rotate proxy before next check</span>
+          </label>
+          <label className="checkbox-row">
+            <input type="checkbox" checked={fallbackPreview} onChange={(event) => setFallbackPreview(event.target.checked)} />
+            <span>Auto fallback country</span>
+          </label>
+          <button type="submit">Save network preference</button>
+        </form>
+        <div className="settings-meta">
+          <p>MVP preview: requested country is saved but not applied to live routing yet.</p>
+          <p>Powered by configured TorchProxies profile when proxy status is enabled.</p>
+        </div>
       </section>
 
       <ApiKeysPanel />
@@ -1063,6 +1269,38 @@ function priceCheckJobLabel(job: PriceCheckJob) {
 
 function displayUser(user: AppUser) {
   return user.displayName ? `${user.displayName}${user.email ? ` (${user.email})` : ""}` : user.email ?? user.username;
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function formatCounts(items?: Array<{ key: string; count: number }>) {
+  if (!items || items.length === 0) {
+    return "none";
+  }
+  return items.slice(0, 3).map((item) => `${plainStatus(item.key)} ${item.count}`).join(", ");
+}
+
+function countryLabel(country: string) {
+  const names: Record<string, string> = {
+    US: "United States",
+    GB: "United Kingdom",
+    CA: "Canada",
+    AU: "Australia",
+    DE: "Germany",
+    FR: "France",
+    NL: "Netherlands",
+    SG: "Singapore",
+    IN: "India",
+    LK: "Sri Lanka"
+  };
+  return `${country} - ${names[country] ?? country}`;
 }
 
 function sessionLabel(status: DarazSessionStatus) {

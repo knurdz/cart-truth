@@ -10,7 +10,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -41,7 +42,8 @@ button:disabled {
   text-decoration: none;
 }
 
-input {
+input,
+select {
   width: 100%;
   min-height: 40px;
   border: 1px solid #c7d0d8;
@@ -371,6 +373,10 @@ pre {
   min-height: 0;
 }
 
+.settings-form select {
+  color: #24313a;
+}
+
 .checkbox-row {
   display: flex !important;
   align-items: center;
@@ -439,6 +445,75 @@ pre {
   margin: 6px 0 0;
   color: #61717d;
   font-size: 12px;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.admin-grid .price-section {
+  margin-top: 0;
+}
+
+.proxy-admin-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.proxy-facts {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.proxy-facts p {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  color: #61717d;
+  font-size: 13px;
+}
+
+.proxy-facts strong {
+  overflow-wrap: anywhere;
+  color: #20272d;
+  font-weight: 700;
+}
+
+.proxy-metrics,
+.event-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.metric {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #dfe6ec;
+  border-radius: 6px;
+  background: #f7fafc;
+  padding: 10px;
+}
+
+.metric span {
+  color: #64727c;
+  font-size: 12px;
+}
+
+.metric strong {
+  overflow-wrap: anywhere;
+  color: #26323a;
+  font-size: 13px;
+}
+
+.proxy-preview-form {
+  margin-top: 12px;
 }
 
 .docs-shell {
@@ -659,6 +734,7 @@ details {
   .layout,
   .search-bar,
   .settings-grid,
+  .admin-grid,
   .docs-layout,
   .api-key-row {
     grid-template-columns: 1fr;
