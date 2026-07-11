@@ -9,7 +9,10 @@ describe("Daraz dashboard source", () => {
     expect(source).toContain("Your Daraz dashboard");
     expect(source).toContain("Saved Daraz links");
     expect(source).toContain("Paste Daraz product URL");
-    expect(source).toContain("Save link");
+    expect(source).toContain("Save and check");
+    expect(source).toContain("Reading product page price");
+    expect(source).toContain("Checking final checkout price");
+    expect(source).toContain("Add your Daraz email/phone and password before saving products.");
     expect(source).toContain("Qty 1");
     expect(source).toContain("Check saved links");
     expect(source).toContain("Order breakdown");

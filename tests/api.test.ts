@@ -72,6 +72,7 @@ beforeEach(async () => {
   });
   process.env.CARTTRUTH_ADMIN_USERNAME = "admin";
   process.env.CARTTRUTH_ADMIN_PASSWORD = "password123";
+  process.env.CARTTRUTH_ENCRYPTION_KEY = "test-encryption-key";
   await runtime.bootstrap();
   server = createServer(createApiApp(runtime));
   await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -91,6 +92,7 @@ afterEach(async () => {
   await rm(join(sqlitePath, ".."), { recursive: true, force: true });
   delete process.env.CARTTRUTH_ADMIN_USERNAME;
   delete process.env.CARTTRUTH_ADMIN_PASSWORD;
+  delete process.env.CARTTRUTH_ENCRYPTION_KEY;
   cookie = "";
 });
 
@@ -129,6 +131,29 @@ describe("Daraz API", () => {
     expect(started.browserUrl).toBe("/vnc/fake-token/vnc.html");
     const saved = await post("/api/daraz/session/save", { captureId: started.captureId });
     expect(saved.exists).toBe(true);
+  });
+
+  it("requires Daraz credentials or a saved session before saving product links", async () => {
+    const response = await post("/api/links", { url: "https://www.daraz.lk/products/sample-i1-s1.html" });
+    expect(response.error).toBe("Add your Daraz email/phone and password before saving products.");
+  });
+
+  it("saves a product link with credentials, then checks that one link", async () => {
+    const credentials = await post("/api/daraz/credentials", {
+      username: "buyer@example.com",
+      password: "daraz-password"
+    });
+    expect(credentials.saved).toBe(true);
+    expect(JSON.stringify(credentials)).not.toContain("daraz-password");
+
+    const created = await post("/api/links", { url: "https://www.daraz.lk/products/sample-i1-s1.html" });
+    expect(created.link.title).toBe("Sample Daraz Product");
+    expect(created.autoCheck).toBeUndefined();
+
+    const checked = await post("/api/links/check", { linkIds: [created.link.id] });
+    expect(checked.status).toBe("checked");
+    expect(checked.products).toHaveLength(1);
+    expect(checked.products[0].url).toBe(fakeSearchResult.url);
   });
 
   it("lists and reads Daraz runs", async () => {

@@ -293,6 +293,7 @@ function UserPanel() {
   const [credentials, setCredentials] = useState<DarazCredentialStatus>({ saved: false });
   const [darazUsername, setDarazUsername] = useState("");
   const [darazPassword, setDarazPassword] = useState("");
+  const [addingLink, setAddingLink] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -327,14 +328,41 @@ function UserPanel() {
 
   async function addLink(event: React.FormEvent) {
     event.preventDefault();
-    setMessage("Reading Daraz product link...");
+    if (!credentials.saved && darazSession.status !== "saved") {
+      setMessage("Add your Daraz email/phone and password before saving products.");
+      return;
+    }
+    setAddingLink(true);
+    setMessage("Reading product page price...");
     try {
-      await postJson("/api/links", { url: productUrl.trim() });
+      const response = await postJson<{
+        link?: SavedLink;
+        status?: string;
+        message?: string;
+        browserUrl?: string;
+        session?: DarazSession & { browserUrl?: string };
+      }>("/api/links", { url: productUrl.trim() });
+      if (response.status === "needs_user_action") {
+        setBrowserUrl(response.browserUrl ?? response.session?.browserUrl ?? "");
+        setCaptureId(response.session?.captureId ?? "");
+        setDarazSession(response.session ?? darazSession);
+        setMessage(response.message ?? "Daraz needs verification. Open the remote browser, finish verification, then save session.");
+        await refresh().catch(() => undefined);
+        return;
+      }
+      if (response.link) {
+        setLinks((items) => [response.link!, ...items.filter((item) => item.id !== response.link!.id)]);
+      }
+      setMessage("Checking final checkout price...");
+      const finalPrice = await postJson<DarazCheckResult>("/api/links/check", { linkIds: response.link ? [response.link.id] : undefined });
+      setLatest(finalPrice);
       setProductUrl("");
-      setMessage("Link saved.");
+      setMessage(finalPrice.message ?? "Product page price and final checkout price updated.");
       await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAddingLink(false);
     }
   }
 
@@ -430,7 +458,7 @@ function UserPanel() {
           <h2>Saved Daraz links</h2>
           <form className="toolbar" onSubmit={(event) => void addLink(event)}>
             <input value={productUrl} onChange={(event) => setProductUrl(event.target.value)} placeholder="Paste Daraz product URL" />
-            <button type="submit">Save link</button>
+            <button type="submit" disabled={addingLink}>{addingLink ? "Checking..." : "Save and check"}</button>
           </form>
           {links.length === 0 ? <p className="empty">No saved links yet.</p> : (
             <div className="selected-list">

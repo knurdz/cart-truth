@@ -126,11 +126,68 @@ export class LocalRuntime {
     });
   }
 
+  async checkSavedLink(userId: string, linkId: string): Promise<DarazCheckResult> {
+    const link = this.store.getSavedLink(userId, linkId);
+    if (!link) {
+      throw new Error("Saved Daraz link not found.");
+    }
+    return this.checkDaraz(userId, {
+      products: [{ ...savedLinkToProduct(link), quantity: 1 }]
+    });
+  }
+
   async addSavedLink(userId: string, url: string): Promise<SavedLink> {
+    await this.ensureDarazSessionForUser(userId);
     const product = await this.findDarazProduct(userId, url);
     const link = this.store.upsertSavedLink(userId, product);
     this.logger.info("saved daraz link", { userId, linkId: link.id, url: link.url });
     return link;
+  }
+
+  hasDarazCredentials(userId: string): boolean {
+    return Boolean(this.store.getDarazCredentials(userId));
+  }
+
+  async ensureDarazSessionForUser(userId: string): Promise<DarazSessionMetadata & { live: boolean; captureId?: string; browserUrl?: string }> {
+    const existing = this.darazSessionStatus(userId);
+    if (existing.status === "saved") {
+      this.logger.debug("daraz session already saved", { userId });
+      return existing;
+    }
+
+    const credentials = this.store.getDarazCredentials(userId);
+    if (!credentials) {
+      this.logger.warn("daraz credentials required", { userId });
+      throw new Error("Add your Daraz email/phone and password before saving products.");
+    }
+
+    this.logger.info("auto_login_started", { userId, username: credentials.username });
+    const started = await this.startDarazSession(userId);
+    try {
+      const saved = await this.saveDarazSession(userId, started.captureId);
+      this.logger.info("auto_login_succeeded", { userId, captureId: started.captureId, status: saved.session.status });
+      return {
+        ...saved.session,
+        ...(started.browserUrl ? { browserUrl: started.browserUrl } : {})
+      };
+    } catch (error) {
+      const session = this.darazSessionStatus(userId);
+      const message = error instanceof Error ? error.message : String(error);
+      const needsAction = session.status === "needs_verification" || /captcha|verification|otp|code/i.test(message);
+      if (needsAction) {
+        this.logger.warn("auto_login_needs_user_action", { userId, captureId: started.captureId, status: session.status, validationUrl: session.validationUrl });
+        const actionMessage = "Daraz needs OTP, captcha, or verification. Open the remote browser, finish verification, then save session.";
+        throw new DarazSessionActionRequiredError(actionMessage, {
+          ...session,
+          live: true,
+          captureId: started.captureId,
+          message: actionMessage,
+          ...(started.browserUrl ? { browserUrl: started.browserUrl } : {})
+        });
+      }
+      this.logger.warn("auto_login_failed", { userId, captureId: started.captureId, error: message });
+      throw new Error("Could not log in to Daraz automatically. Check your saved Daraz email/phone and password, or open the remote browser to login manually.");
+    }
   }
 
   listSavedLinks(userId: string): SavedLink[] {
@@ -241,6 +298,13 @@ export class LocalRuntime {
       ...(this.proxyProfile ? { proxyProfile: this.proxyProfile } : {}),
       liveContext: () => this.sessionCapture.activeContext(userId)
     });
+  }
+}
+
+export class DarazSessionActionRequiredError extends Error {
+  constructor(message: string, readonly session: DarazSessionMetadata & { live: boolean; captureId?: string; browserUrl?: string }) {
+    super(message);
+    this.name = "DarazSessionActionRequiredError";
   }
 }
 

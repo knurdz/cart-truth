@@ -13,7 +13,7 @@ import {
   type UserRole
 } from "./auth.js";
 import { requestId } from "./logger.js";
-import type { LocalRuntime } from "./runtime.js";
+import { DarazSessionActionRequiredError, type LocalRuntime } from "./runtime.js";
 import type { AppUser } from "./store.js";
 
 const DarazSearchBodySchema = z.object({
@@ -289,8 +289,21 @@ export function createApiApp(runtime: LocalRuntime): Express {
   app.post("/api/links", requireUser(runtime), async (request, response, next) => {
     try {
       const body = DarazProductLinkBodySchema.parse(request.body);
-      response.status(201).json({ link: await runtime.addSavedLink(request.user.id, body.url) });
+      const link = await runtime.addSavedLink(request.user.id, body.url);
+      response.status(201).json({
+        link,
+        message: "Product page price saved. Final checkout price check can start."
+      });
     } catch (error) {
+      if (error instanceof DarazSessionActionRequiredError) {
+        response.status(202).json({
+          status: "needs_user_action",
+          message: error.message,
+          session: error.session,
+          browserUrl: error.session.browserUrl
+        });
+        return;
+      }
       next(error);
     }
   });
@@ -418,6 +431,12 @@ function formatApiError(error: unknown): { status: number; message: string } {
   const message = error instanceof Error ? error.message : String(error);
   if (/^Paste a valid Daraz/i.test(message)) {
     return { status: 400, message };
+  }
+  if (/^Add your Daraz email\/phone and password/i.test(message)) {
+    return { status: 400, message };
+  }
+  if (/^Could not log in to Daraz automatically/i.test(message)) {
+    return { status: 409, message };
   }
   if (isMissingPlaywrightBrowser(message)) {
     return {
