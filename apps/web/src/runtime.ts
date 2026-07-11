@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import { chromium, type BrowserContext, type Page } from "playwright";
+import { type BrowserContext, type Page } from "playwright";
 import {
   loadProxyProfileFromEnv,
   LocalEvidenceStore,
@@ -24,6 +24,8 @@ import {
 } from "@carttruth/schemas";
 import {
   DarazService,
+  launchDarazPersistentContext,
+  repairDarazProfileLock,
   clearDarazProfileSession,
   darazProfilePath,
   hasDarazProfileSession,
@@ -63,6 +65,7 @@ export class LocalRuntime {
   readonly logger: Logger;
   private readonly proxyProfile: ProxyProfile | undefined;
   private readonly sessionCapture: DarazSessionCaptureManager;
+  private readonly darazUserLocks = new Map<string, Promise<void>>();
 
   constructor(private readonly options: RuntimeOptions = {}) {
     this.runsDir = resolve(options.runsDir ?? process.env.CARTTRUTH_RUNS_DIR ?? "runs");
@@ -108,12 +111,14 @@ export class LocalRuntime {
   }
 
   async checkDaraz(userId: string, rawRequest: DarazCheckRequestInput): Promise<DarazCheckResult> {
-    const request = DarazCheckRequestSchema.parse(rawRequest);
-    this.logger.info("daraz check started", { userId, productCount: request.products.length });
-    const result = await this.darazServiceForUser(userId).check(request);
-    this.store.recordRun(userId, result);
-    this.logger.info("daraz check finished", { userId, runId: result.runId, status: result.status });
-    return result;
+    return this.withDarazUserLock(userId, "check", async () => {
+      const request = DarazCheckRequestSchema.parse(rawRequest);
+      this.logger.info("daraz check started", { userId, productCount: request.products.length });
+      const result = await this.darazServiceForUser(userId).check(request);
+      this.store.recordRun(userId, result);
+      this.logger.info("daraz check finished", { userId, runId: result.runId, status: result.status });
+      return result;
+    });
   }
 
   async checkSavedLinks(userId: string, linkIds?: string[]): Promise<DarazCheckResult> {
@@ -149,6 +154,10 @@ export class LocalRuntime {
   }
 
   async ensureDarazSessionForUser(userId: string): Promise<DarazSessionMetadata & { live: boolean; captureId?: string; browserUrl?: string }> {
+    return this.withDarazUserLock(userId, "ensure_session", () => this.ensureDarazSessionForUserUnlocked(userId));
+  }
+
+  private async ensureDarazSessionForUserUnlocked(userId: string): Promise<DarazSessionMetadata & { live: boolean; captureId?: string; browserUrl?: string }> {
     const existing = this.darazSessionStatus(userId);
     if (existing.status === "saved") {
       this.logger.debug("daraz session already saved", { userId });
@@ -162,9 +171,9 @@ export class LocalRuntime {
     }
 
     this.logger.info("auto_login_started", { userId, username: credentials.username });
-    const started = await this.startDarazSession(userId);
+    const started = await this.startDarazSessionUnlocked(userId);
     try {
-      const saved = await this.saveDarazSession(userId, started.captureId);
+      const saved = await this.saveDarazSessionUnlocked(userId, started.captureId);
       this.logger.info("auto_login_succeeded", { userId, captureId: started.captureId, status: saved.session.status });
       return {
         ...saved.session,
@@ -212,6 +221,10 @@ export class LocalRuntime {
   }
 
   async startDarazSession(userId: string) {
+    return this.withDarazUserLock(userId, "start_session", () => this.startDarazSessionUnlocked(userId));
+  }
+
+  private async startDarazSessionUnlocked(userId: string) {
     const credentials = this.store.getDarazCredentials(userId);
     this.logger.info("daraz browser session requested", { userId, hasStoredCredentials: Boolean(credentials) });
     return this.sessionCapture.start(userId, darazProfilePath(this.sessionsDirForUser(userId)), credentials ? {
@@ -221,22 +234,56 @@ export class LocalRuntime {
   }
 
   async saveDarazSession(userId: string, captureId: string) {
+    return this.withDarazUserLock(userId, "save_session", () => this.saveDarazSessionUnlocked(userId, captureId));
+  }
+
+  private async saveDarazSessionUnlocked(userId: string, captureId: string) {
     const saved = await this.sessionCapture.save(userId, captureId);
     this.logger.info("daraz browser session saved", { userId, captureId, status: saved.session.status });
     return saved;
   }
 
   async resetDarazSession(userId: string) {
-    await this.sessionCapture.reset(userId);
-    clearDarazProfileSession(this.sessionsDirForUser(userId));
-    this.logger.info("daraz browser session reset", { userId });
-    return this.darazSessionStatus(userId);
+    return this.withDarazUserLock(userId, "reset_session", async () => {
+      await this.sessionCapture.reset(userId);
+      clearDarazProfileSession(this.sessionsDirForUser(userId));
+      await repairDarazProfileLock(darazProfilePath(this.sessionsDirForUser(userId)), {
+        logger: this.logger,
+        operation: "reset_session",
+        userId
+      });
+      this.logger.info("daraz browser session reset", { userId });
+      return this.darazSessionStatus(userId);
+    });
   }
 
   async stopDarazBrowser(userId: string) {
-    await this.sessionCapture.reset(userId);
-    this.logger.info("daraz browser stopped", { userId });
-    return this.darazSessionStatus(userId);
+    return this.withDarazUserLock(userId, "stop_browser", async () => {
+      await this.sessionCapture.reset(userId);
+      await repairDarazProfileLock(darazProfilePath(this.sessionsDirForUser(userId)), {
+        logger: this.logger,
+        operation: "stop_browser",
+        userId
+      });
+      this.logger.info("daraz browser stopped", { userId });
+      return this.darazSessionStatus(userId);
+    });
+  }
+
+  async repairDarazBrowserProfile(userId: string) {
+    return this.withDarazUserLock(userId, "repair_profile", async () => {
+      await this.sessionCapture.reset(userId);
+      const repair = await repairDarazProfileLock(darazProfilePath(this.sessionsDirForUser(userId)), {
+        logger: this.logger,
+        operation: "repair_profile",
+        userId
+      });
+      this.logger.info("daraz browser profile repair requested", { userId, repair });
+      return {
+        session: this.darazSessionStatus(userId),
+        repair
+      };
+    });
   }
 
   darazSessionStatus(userId: string): DarazSessionMetadata & { live: boolean; captureId?: string } {
@@ -296,8 +343,32 @@ export class LocalRuntime {
       evidenceStore: this.evidenceStore,
       sessionsDir: this.sessionsDirForUser(userId),
       ...(this.proxyProfile ? { proxyProfile: this.proxyProfile } : {}),
+      logger: this.logger,
       liveContext: () => this.sessionCapture.activeContext(userId)
     });
+  }
+
+  private async withDarazUserLock<T>(userId: string, operation: string, action: () => Promise<T>): Promise<T> {
+    const previous = this.darazUserLocks.get(userId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolveRelease) => {
+      release = resolveRelease;
+    });
+    const tail = previous.catch(() => undefined).then(() => current);
+    this.darazUserLocks.set(userId, tail);
+    await previous.catch(() => undefined);
+
+    const startedAt = Date.now();
+    this.logger.debug("daraz_user_lock_acquired", { userId, operation });
+    try {
+      return await action();
+    } finally {
+      release();
+      if (this.darazUserLocks.get(userId) === tail) {
+        this.darazUserLocks.delete(userId);
+      }
+      this.logger.debug("daraz_user_lock_released", { userId, operation, elapsedMs: Date.now() - startedAt });
+    }
   }
 }
 
@@ -350,10 +421,14 @@ class PlaywrightDarazSessionCaptureManager implements DarazSessionCaptureManager
     await mkdir(dirname(profilePath), { recursive: true });
     const captureId = `daraz-${Date.now()}`;
     const loginUrl = "https://member.daraz.lk/user/login";
-    const context = await chromium.launchPersistentContext(profilePath, {
+    const context = await launchDarazPersistentContext(profilePath, {
       headless: false,
       viewport: { width: 1365, height: 900 },
       ...(this.proxyProfile ? { proxy: proxyToPlaywright(this.proxyProfile) } : {})
+    }, {
+      logger: this.logger,
+      operation: "headed_session_start",
+      userId
     });
     const page = context.pages()[0] ?? await context.newPage();
     await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
@@ -424,6 +499,11 @@ class PlaywrightDarazSessionCaptureManager implements DarazSessionCaptureManager
     await Promise.all([...this.captures.entries()].map(async ([captureId, capture]) => {
       if (capture.userId === userId) {
         await capture.context.close().catch(() => undefined);
+        await repairDarazProfileLock(capture.profilePath, {
+          logger: this.logger,
+          operation: "headed_session_reset",
+          userId
+        });
         this.captures.delete(captureId);
         this.logger.info("headed daraz browser closed", { userId, captureId });
       }
@@ -433,6 +513,11 @@ class PlaywrightDarazSessionCaptureManager implements DarazSessionCaptureManager
   async close(): Promise<void> {
     await Promise.all([...this.captures.values()].map(async (capture) => {
       await capture.context.close().catch(() => undefined);
+      await repairDarazProfileLock(capture.profilePath, {
+        logger: this.logger,
+        operation: "headed_session_close",
+        userId: capture.userId
+      });
     }));
     this.logger.info("all headed daraz browsers closed", { count: this.captures.size });
     this.captures.clear();
@@ -487,11 +572,15 @@ class VncDarazSessionCaptureManager extends PlaywrightDarazSessionCaptureManager
       processes.push(this.spawnLogged("x11vnc", ["-display", display, "-localhost", "-rfbport", String(vncPort), "-forever", "-shared", "-nopw", "-quiet"]));
       processes.push(this.spawnLogged("websockify", ["--web", process.env.CARTTRUTH_NOVNC_WEB_DIR ?? "/usr/share/novnc", `127.0.0.1:${webPort}`, `127.0.0.1:${vncPort}`]));
 
-      const context = await chromium.launchPersistentContext(profilePath, {
+      const context = await launchDarazPersistentContext(profilePath, {
         headless: false,
         viewport: { width: 1365, height: 900 },
         env: { ...process.env, DISPLAY: display },
         ...(this.proxyProfile ? { proxy: proxyToPlaywright(this.proxyProfile) } : {})
+      }, {
+        logger: this.logger,
+        operation: "vnc_session_start",
+        userId
       });
       const page = context.pages()[0] ?? await context.newPage();
       const loginUrl = "https://member.daraz.lk/user/login";
@@ -629,6 +718,11 @@ class VncDarazSessionCaptureManager extends PlaywrightDarazSessionCaptureManager
     }
     await capture.context.close().catch(() => undefined);
     await this.closeProcesses(capture.processes);
+    await repairDarazProfileLock(capture.profilePath, {
+      logger: this.logger,
+      operation: "vnc_session_close",
+      userId: capture.userId
+    });
     await rm(capture.tempDir, { recursive: true, force: true }).catch(() => undefined);
     this.vncCaptures.delete(captureId);
     this.logger.info("vnc daraz browser closed", { userId: capture.userId, captureId });

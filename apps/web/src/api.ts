@@ -212,6 +212,14 @@ export function createApiApp(runtime: LocalRuntime): Express {
     }
   });
 
+  app.post("/api/daraz/session/repair", requireUser(runtime), async (request, response, next) => {
+    try {
+      response.json(await runtime.repairDarazBrowserProfile(request.user.id));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/daraz/credentials", requireUser(runtime), (request, response) => {
     const credentials = runtime.store.getDarazCredentials(request.user.id);
     response.json({

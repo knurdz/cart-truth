@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -131,6 +132,19 @@ describe("Daraz API", () => {
     expect(started.browserUrl).toBe("/vnc/fake-token/vnc.html");
     const saved = await post("/api/daraz/session/save", { captureId: started.captureId });
     expect(saved.exists).toBe(true);
+  });
+
+  it("repairs a stale Daraz browser profile lock for the current user", async () => {
+    const started = await post("/api/daraz/session/start", {});
+    await mkdir(started.profilePath, { recursive: true });
+    const lockPath = join(started.profilePath, "SingletonLock");
+    await writeFile(lockPath, "stale", "utf8");
+
+    const repaired = await post("/api/daraz/session/repair", {});
+
+    expect(repaired.repair.reason).toBe("stale_lock_removed");
+    expect(repaired.repair.removedFiles).toContain("SingletonLock");
+    expect(existsSync(lockPath)).toBe(false);
   });
 
   it("requires Daraz credentials or a saved session before saving product links", async () => {

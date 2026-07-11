@@ -3,6 +3,13 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import {
+  DarazProfileInUseError,
+  launchDarazPersistentContext,
+  type DarazProfileLaunchDiagnostics,
+  type DarazProfileLockEvent,
+  type DarazProfileLockLogger
+} from "./darazProfileLock.js";
+import {
   classifyPageState,
   installNeverPurchaseGuards,
   moneyToMinorUnits,
@@ -123,6 +130,7 @@ export interface DarazServiceOptions {
   headless?: boolean;
   proxyProfile?: ProxyProfile;
   liveContext?: () => Promise<BrowserContext | undefined> | BrowserContext | undefined;
+  logger?: DarazProfileLockLogger;
 }
 
 export class DarazService {
@@ -188,6 +196,14 @@ export class DarazService {
     const evidence: Evidence[] = [];
     const liveContext = await resolveLiveContext(this.options.liveContext);
     const currentProxy = proxySummary(this.options.proxyProfile);
+    const profileLockEvents: DarazProfileLockEvent[] = [];
+    const profileLaunchDiagnostics: DarazProfileLaunchDiagnostics = {
+      operation: "daraz_check",
+      ...(this.options.logger ? { logger: this.options.logger } : {}),
+      onEvent: (event) => {
+        profileLockEvents.push(event);
+      }
+    };
 
     if (!hasSavedSession && !liveContext) {
       const result = DarazCheckResultSchema.parse({
@@ -227,17 +243,18 @@ export class DarazService {
       context = liveContext;
       if (!context) {
         ownsContext = true;
-        context = await chromium.launchPersistentContext(profilePath, {
+        context = await launchDarazPersistentContext(profilePath, {
           headless: this.options.headless ?? false,
           viewport: { width: 1365, height: 900 },
           ...(this.options.proxyProfile ? { proxy: proxyToPlaywright(this.options.proxyProfile) } : {})
-        });
+        }, profileLaunchDiagnostics);
       }
       page = liveContext ? await context.newPage() : context.pages()[0] ?? await context.newPage();
       await installNeverPurchaseGuards(page);
 
       evidence.push(await this.options.evidenceStore.writeJson(runId, "daraz-run-config.json", {
-        proxy: currentProxy
+        proxy: currentProxy,
+        profileLockEvents
       }));
       evidence.push(await this.options.evidenceStore.writeJson(runId, "selected-products.json", request.products));
       const prices: DarazProductPrice[] = [];
@@ -306,14 +323,21 @@ export class DarazService {
         singleCheckout?.globalAdjustments ?? []
       );
     } catch (error) {
+      if (profileLockEvents.length > 0) {
+        evidence.push(await this.options.evidenceStore.writeJson(runId, "daraz-profile-lock.json", {
+          events: profileLockEvents
+        }));
+      }
+      const isProfileLock = error instanceof DarazProfileInUseError;
+      const message = error instanceof Error ? error.message : "Unable to check Daraz price.";
       return await finishDarazResult(
         this.options.evidenceStore,
         runId,
         startedAt,
         evidence,
-        request.products.map((product) => productToPrice(product, "needs_attention", error instanceof Error ? error.message : "Unable to check Daraz price.")),
-        "error",
-        error instanceof Error ? error.message : "Unable to check Daraz price."
+        request.products.map((product) => productToPrice(product, "needs_attention", message)),
+        isProfileLock ? "needs_attention" : "error",
+        message
       );
     } finally {
       if (ownsContext) {

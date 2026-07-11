@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocalEvidenceStore, parseProxyString, proxySummary, proxyToPlaywright } from "@carttruth/core";
 import type { DarazSelectedProduct } from "@carttruth/schemas";
@@ -15,10 +17,19 @@ vi.mock("playwright", () => ({
   chromium: playwrightMocks
 }));
 
-const { DarazService, darazProfileReadyPath, markDarazProfileSessionSaved, readDarazProfileSessionMetadata } = await import("@carttruth/adapters");
+const {
+  DarazService,
+  darazProfilePath,
+  darazProfileReadyPath,
+  markDarazProfileSessionSaved,
+  readDarazProfileSessionMetadata,
+  repairDarazProfileLock
+} = await import("@carttruth/adapters");
 const { LocalRuntime } = await import("../apps/web/src/runtime.js");
 
 const tempDirs: string[] = [];
+const childProcesses: ChildProcess[] = [];
+const execFileAsync = promisify(execFile);
 
 const product: DarazSelectedProduct = {
   id: "item-1",
@@ -40,6 +51,9 @@ const secondProduct: DarazSelectedProduct = {
 
 afterEach(async () => {
   vi.clearAllMocks();
+  for (const child of childProcesses.splice(0)) {
+    child.kill("SIGKILL");
+  }
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -193,6 +207,94 @@ describe("Daraz check Buy Now flow", () => {
     };
     expect(config.proxy.masked).toBe("http://user_abc:***@proxy.example:61234");
     expect(JSON.stringify(config)).not.toContain("secret");
+  });
+
+  it("removes stale Chromium profile locks before opening a saved Daraz profile", async () => {
+    const { service, sessionsDir } = await serviceWithReadyProfile();
+    const profilePath = darazProfilePath(sessionsDir);
+    await writeFile(join(profilePath, "SingletonLock"), "stale", "utf8");
+    const page = new FakeDarazPage({
+      onGoto(url, state) {
+        if (url.includes("cart.daraz.lk/cart")) {
+          state.url = url;
+          state.bodyText = "Shopping Cart";
+          return;
+        }
+        if (url === product.url) {
+          state.url = url;
+          state.bodyText = "Sample Daraz Product Rs. 1,000 Buy Now";
+        }
+      },
+      onClick(label, state) {
+        if (/buy now/i.test(label)) {
+          state.url = "https://checkout.daraz.lk/shipping?buyNow=1";
+          state.bodyText = checkoutText(product.title, "Rs. 1,000", "Rs. 1,345");
+        }
+      }
+    });
+    playwrightMocks.launchPersistentContext.mockResolvedValue(fakeContext(page));
+
+    const result = await service.check({ products: [product] });
+
+    expect(result.status).toBe("checked");
+    expect(existsSync(join(profilePath, "SingletonLock"))).toBe(false);
+    expect(playwrightMocks.launchPersistentContext).toHaveBeenCalledTimes(1);
+  });
+
+  it("repairs a profile lock created by a failed Chromium launch and retries once", async () => {
+    const { service, sessionsDir } = await serviceWithReadyProfile();
+    const profilePath = darazProfilePath(sessionsDir);
+    const page = new FakeDarazPage({
+      onGoto(url, state) {
+        if (url.includes("cart.daraz.lk/cart")) {
+          state.url = url;
+          state.bodyText = "Shopping Cart";
+          return;
+        }
+        if (url === product.url) {
+          state.url = url;
+          state.bodyText = "Sample Daraz Product Rs. 1,000 Buy Now";
+        }
+      },
+      onClick(label, state) {
+        if (/buy now/i.test(label)) {
+          state.url = "https://checkout.daraz.lk/shipping?buyNow=1";
+          state.bodyText = checkoutText(product.title, "Rs. 1,000", "Rs. 1,345");
+        }
+      }
+    });
+    playwrightMocks.launchPersistentContext
+      .mockImplementationOnce(async () => {
+        await writeFile(join(profilePath, "SingletonLock"), "stale after failed launch", "utf8");
+        throw new Error("browserType.launchPersistentContext: profile appears to be in use by another Chromium process (exit code 21)");
+      })
+      .mockResolvedValueOnce(fakeContext(page));
+
+    const result = await service.check({ products: [product] });
+
+    expect(result.status).toBe("checked");
+    expect(playwrightMocks.launchPersistentContext).toHaveBeenCalledTimes(2);
+    expect(existsSync(join(profilePath, "SingletonLock"))).toBe(false);
+  });
+
+  it("does not remove Chromium profile locks while a matching process is still alive", async () => {
+    const sessionsDir = await mkdtemp(join(tmpdir(), "daraz-flow-sessions-"));
+    tempDirs.push(sessionsDir);
+    const profilePath = darazProfilePath(sessionsDir);
+    await mkdir(profilePath, { recursive: true });
+    await writeFile(join(profilePath, "SingletonLock"), "active", "utf8");
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)", profilePath], {
+      stdio: "ignore"
+    });
+    childProcesses.push(child);
+    await waitForProcessTable(profilePath);
+
+    const repair = await repairDarazProfileLock(profilePath);
+
+    expect(repair.reason).toBe("active_process");
+    expect(repair.repaired).toBe(false);
+    expect(repair.activeProcesses.length).toBeGreaterThan(0);
+    expect(existsSync(join(profilePath, "SingletonLock"))).toBe(true);
   });
 
   it("requires a fresh Daraz login when saved session proxy differs from current proxy", async () => {
@@ -580,6 +682,17 @@ function checkoutText(title: string, linePrice: string, total: string) {
 
 function formatRs(minorUnits: number) {
   return `Rs. ${(minorUnits / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+async function waitForProcessTable(text: string): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const { stdout } = await execFileAsync("ps", ["-eo", "args="]);
+    if (stdout.includes(text)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Process table did not include ${text}`);
 }
 
 type PageState = { url: string; bodyText: string };
