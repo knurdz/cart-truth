@@ -7,6 +7,10 @@ type Money = { currency: string; minorUnits?: number; amount?: string | number }
 type AppUser = {
   id: string;
   username: string;
+  googleSub?: string;
+  email?: string;
+  displayName?: string;
+  avatarUrl?: string;
   role: "admin" | "user";
   disabled: boolean;
   mustChangePassword: boolean;
@@ -73,12 +77,38 @@ type DarazSession = {
   message?: string;
   live?: boolean;
   captureId?: string;
+  browserUrl?: string;
 };
 
 type DarazCredentialStatus = {
   saved: boolean;
   username?: string;
   updatedAt?: string;
+};
+
+type UserSettings = {
+  autoPriceCheckEnabled: boolean;
+  autoPriceCheckIntervalHours: number;
+  autoPriceCheckNextRunAt?: string;
+  autoPriceCheckLastRunAt?: string;
+  autoPriceCheckLastJobId?: string;
+  autoPriceCheckLastStatus?: PriceCheckJob["status"];
+  autoPriceCheckLastMessage?: string;
+  updatedAt: string;
+};
+
+type PriceCheckJob = {
+  id: string;
+  source: "link_added" | "manual" | "scheduled";
+  status: "queued" | "running" | "completed" | "failed" | "needs_user_action" | "skipped";
+  linkIds?: string[];
+  runId?: string;
+  message?: string;
+  session?: DarazSession & { browserUrl?: string };
+  queuedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  updatedAt: string;
 };
 
 type DarazSessionActionResponse = {
@@ -107,13 +137,12 @@ function App() {
   }
 
   if (!user) {
-    return <LoginScreen onLogin={setUser} />;
+    return <LoginScreen />;
   }
 
   return (
     <Dashboard
       user={user}
-      onUserChange={setUser}
       onLogout={async () => {
         await postJson("/api/auth/logout", {});
         setUser(undefined);
@@ -122,40 +151,23 @@ function App() {
   );
 }
 
-function LoginScreen({ onLogin }: { onLogin: (user: AppUser) => void }) {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
-
-  async function login(event: React.FormEvent) {
-    event.preventDefault();
-    setMessage("");
-    try {
-      const response = await postJson<{ user: AppUser }>("/api/auth/login", { username, password });
-      onLogin(response.user);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
+function LoginScreen() {
+  const authError = new URLSearchParams(window.location.search).get("auth_error");
 
   return (
     <main className="shell login-shell">
       <section className="login-panel">
         <h1>CartTruth</h1>
         <p>Sign in to check Daraz final prices from your own saved Daraz session.</p>
-        <form onSubmit={(event) => void login(event)}>
-          <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" autoComplete="username" />
-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete="current-password" />
-          <button type="submit">Sign in</button>
-        </form>
-        {message && <p className="attention-message">{message}</p>}
+        <a className="button-link google-login" href="/api/auth/google/start">Continue with Google</a>
+        {authError && <p className="attention-message">{authError}</p>}
       </section>
     </main>
   );
 }
 
-function Dashboard({ user, onUserChange, onLogout }: { user: AppUser; onUserChange: (user: AppUser) => void; onLogout: () => Promise<void> }) {
-  const [tab, setTab] = useState<"links" | "admin">(user.role === "admin" ? "admin" : "links");
+function Dashboard({ user, onLogout }: { user: AppUser; onLogout: () => Promise<void> }) {
+  const [tab, setTab] = useState<"links" | "settings" | "admin">("links");
 
   return (
     <main className="shell">
@@ -163,54 +175,23 @@ function Dashboard({ user, onUserChange, onLogout }: { user: AppUser; onUserChan
         <div>
           <p className="eyebrow">Daraz final price checker</p>
           <h1>{user.role === "admin" ? "Admin dashboard" : "Your Daraz dashboard"}</h1>
-          <p>Logged in as {user.username}. Daraz sessions, links, and evidence are scoped to this app account.</p>
+          <p>Logged in as {displayUser(user)}. Daraz sessions, links, and evidence are scoped to this Google account.</p>
         </div>
         <div className="button-row">
           <button type="button" className={tab === "links" ? "" : "light-button"} onClick={() => setTab("links")}>My links</button>
+          <button type="button" className={tab === "settings" ? "" : "light-button"} onClick={() => setTab("settings")}>Settings</button>
           {user.role === "admin" && <button type="button" className={tab === "admin" ? "" : "light-button"} onClick={() => setTab("admin")}>Users</button>}
           <button type="button" className="light-button" onClick={() => void onLogout()}>Logout</button>
         </div>
       </header>
 
-      {user.mustChangePassword && <ChangePasswordPanel onChanged={(updated) => onUserChange(updated)} />}
-      {tab === "admin" && user.role === "admin" ? <AdminPanel /> : <UserPanel />}
+      {tab === "admin" && user.role === "admin" ? <AdminPanel /> : tab === "settings" ? <SettingsPanel /> : <UserPanel />}
     </main>
-  );
-}
-
-function ChangePasswordPanel({ onChanged }: { onChanged: (user: AppUser) => void }) {
-  const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("Change the temporary password before sharing this account.");
-
-  async function changePassword(event: React.FormEvent) {
-    event.preventDefault();
-    try {
-      const response = await postJson<{ user: AppUser }>("/api/auth/change-password", { password });
-      onChanged(response.user);
-      setPassword("");
-      setMessage("Password changed.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  return (
-    <section className="login-box">
-      <strong>Temporary password</strong>
-      <form className="inline-form" onSubmit={(event) => void changePassword(event)}>
-        <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" placeholder="New password" />
-        <button type="submit">Change password</button>
-      </form>
-      <p>{message}</p>
-    </section>
   );
 }
 
 function AdminPanel() {
   const [users, setUsers] = useState<AppUser[]>([]);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"admin" | "user">("user");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -222,22 +203,9 @@ function AdminPanel() {
     setUsers(response.users);
   }
 
-  async function createUser(event: React.FormEvent) {
-    event.preventDefault();
-    try {
-      await postJson("/api/admin/users", { username, password, role });
-      setUsername("");
-      setPassword("");
-      setRole("user");
-      setMessage("User created.");
-      await refresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
   async function setDisabled(userId: string, disabled: boolean) {
     await postJson(`/api/admin/users/${userId}/disabled`, { disabled });
+    setMessage(disabled ? "User disabled." : "User enabled.");
     await refresh();
   }
 
@@ -246,21 +214,13 @@ function AdminPanel() {
       <div className="section-title">
         <h2>Users</h2>
       </div>
-      <form className="toolbar" onSubmit={(event) => void createUser(event)}>
-        <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" />
-        <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Temporary password" type="password" />
-        <select value={role} onChange={(event) => setRole(event.target.value as "admin" | "user")}>
-          <option value="user">User</option>
-          <option value="admin">Admin</option>
-        </select>
-        <button type="submit">Create user</button>
-      </form>
       {message && <p className="message">{message}</p>}
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Username</th>
+              <th>Name</th>
+              <th>Email</th>
               <th>Role</th>
               <th>Status</th>
               <th>Created</th>
@@ -270,9 +230,10 @@ function AdminPanel() {
           <tbody>
             {users.map((item) => (
               <tr key={item.id}>
-                <td>{item.username}</td>
+                <td>{item.displayName ?? item.email ?? item.username}</td>
+                <td>{item.email ?? "Legacy password user"}</td>
                 <td>{item.role}</td>
-                <td>{item.disabled ? "disabled" : item.mustChangePassword ? "temporary password" : "active"}</td>
+                <td>{item.disabled ? "disabled" : "active"}</td>
                 <td>{new Date(item.createdAt).toLocaleString()}</td>
                 <td>
                   <button type="button" className="text-button" onClick={() => void setDisabled(item.id, !item.disabled)}>
@@ -298,9 +259,8 @@ function UserPanel() {
   const [history, setHistory] = useState<DarazCheckResult[]>([]);
   const [latest, setLatest] = useState<DarazCheckResult | undefined>();
   const [credentials, setCredentials] = useState<DarazCredentialStatus>({ saved: false });
-  const [darazUsername, setDarazUsername] = useState("");
-  const [darazPassword, setDarazPassword] = useState("");
   const [addingLink, setAddingLink] = useState(false);
+  const [activeJob, setActiveJob] = useState<PriceCheckJob | undefined>();
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -322,13 +282,10 @@ function UserPanel() {
     ]);
     setDarazSession(session);
     setCaptureId(session.captureId ?? "");
-    if (!session.live) {
-      setBrowserUrl("");
-    }
+    setBrowserUrl(session.browserUrl ?? (session.live ? browserUrl : ""));
     setLinks(saved.links);
     setHistory(runs);
     setCredentials(credentialStatus);
-    setDarazUsername(credentialStatus.username ?? "");
     if (!latest && runs[0]) {
       setLatest(runs[0]);
     }
@@ -336,33 +293,16 @@ function UserPanel() {
 
   async function addLink(event: React.FormEvent) {
     event.preventDefault();
-    if (!credentials.saved && darazSession.status !== "saved") {
-      setMessage("Add your Daraz email/phone and password before saving products.");
-      return;
-    }
     setAddingLink(true);
     setMessage("Reading product page price...");
     try {
-      const response = await postJson<({ link?: SavedLink; message?: string } | DarazSessionActionResponse)>("/api/links", { url: productUrl.trim() });
-      if (isDarazSessionActionResponse(response)) {
-        await handleDarazSessionAction(response);
-        await refresh().catch(() => undefined);
-        return;
-      }
+      const response = await postJson<{ link: SavedLink; checkJob: PriceCheckJob; message?: string }>("/api/links", { url: productUrl.trim() });
       if (response.link) {
         setLinks((items) => [response.link!, ...items.filter((item) => item.id !== response.link!.id)]);
       }
-      setMessage("Checking final checkout price...");
-      const finalPrice = await postJson<DarazCheckResult | DarazSessionActionResponse>("/api/links/check", { linkIds: response.link ? [response.link.id] : undefined });
-      if (isDarazSessionActionResponse(finalPrice)) {
-        await handleDarazSessionAction(finalPrice);
-        await refresh().catch(() => undefined);
-        return;
-      }
-      setLatest(finalPrice);
       setProductUrl("");
-      setMessage(finalPrice.message ?? "Product page price and final checkout price updated.");
-      await refresh();
+      setMessage("Final checkout price check queued.");
+      await trackPriceCheckJob(response.checkJob.id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -416,43 +356,16 @@ function UserPanel() {
     setMessage("Remote Daraz browser closed.");
   }
 
-  async function saveDarazCredentials(event: React.FormEvent) {
-    event.preventDefault();
-    try {
-      await postJson("/api/daraz/credentials", { username: darazUsername, password: darazPassword });
-      setDarazPassword("");
-      setMessage("Daraz credentials saved for best-effort auto-login.");
-      await refresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function deleteDarazCredentials() {
-    await fetchJson("/api/daraz/credentials", { method: "DELETE" });
-    setDarazUsername("");
-    setDarazPassword("");
-    setMessage("Saved Daraz credentials removed.");
-    await refresh();
-  }
-
   async function checkAllLinks() {
     if (links.length === 0) {
       setMessage("Save at least one Daraz link first.");
       return;
     }
     setChecking(true);
-    setMessage(hasSavedCredentialsForExpiredSession ? "Reconnecting to Daraz..." : "Checking saved links...");
+    setMessage(hasSavedCredentialsForExpiredSession ? "Reconnecting to Daraz..." : "Queueing saved-link check...");
     try {
-      const result = await postJson<DarazCheckResult | DarazSessionActionResponse>("/api/links/check", {});
-      if (isDarazSessionActionResponse(result)) {
-        await handleDarazSessionAction(result);
-        await refresh().catch(() => undefined);
-        return;
-      }
-      setLatest(result);
-      setMessage(result.message ?? "Price check finished.");
-      await refresh();
+      const response = await postJson<{ job: PriceCheckJob }>("/api/links/check-jobs", {});
+      await trackPriceCheckJob(response.job.id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -465,6 +378,46 @@ function UserPanel() {
     setCaptureId(response.session?.captureId ?? "");
     setDarazSession(response.session ?? darazSession);
     setMessage(response.message ?? "Daraz needs verification. Open the remote browser, finish it, then save session.");
+  }
+
+  async function trackPriceCheckJob(jobId: string) {
+    let current: PriceCheckJob | undefined;
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const response = await fetchJson<{ job: PriceCheckJob }>(`/api/price-check-jobs/${jobId}`);
+      current = response.job;
+      setActiveJob(current);
+      if (current.status === "queued") {
+        setMessage("Final checkout price check queued.");
+      } else if (current.status === "running") {
+        setMessage(hasSavedCredentialsForExpiredSession ? "Reconnecting to Daraz..." : "Checking final checkout price...");
+      } else {
+        break;
+      }
+      await delay(1000);
+    }
+
+    if (!current) {
+      return;
+    }
+    if (current.status === "needs_user_action") {
+      await handleDarazSessionAction({
+        status: "needs_user_action",
+        message: current.message,
+        session: current.session,
+        browserUrl: current.session?.browserUrl
+      });
+      await refresh().catch(() => undefined);
+      return;
+    }
+    if (current.status === "completed" && current.runId) {
+      const result = await fetchJson<DarazCheckResult>(`/api/daraz/runs/${current.runId}`);
+      setLatest(result);
+      setMessage(current.message ?? "Product page price and final checkout price updated.");
+      await refresh();
+      return;
+    }
+    setMessage(current.message ?? plainStatus(current.status));
+    await refresh().catch(() => undefined);
   }
 
   return (
@@ -500,30 +453,22 @@ function UserPanel() {
           <p className={`session-state ${sessionClassName(darazSession.status)}`}>{sessionLabel(darazSession.status)}</p>
           <p>{sessionHelpText(darazSession, credentials)}</p>
           <div className="button-row">
-            <button type="button" disabled={Boolean(captureId)} onClick={() => void startDarazLogin()}>
-              {captureId ? "Browser active" : "Open Daraz browser"}
-            </button>
+            {captureId && browserUrl ? (
+              <a className="button-link" href={browserUrl} target="_blank" rel="noreferrer">Open remote browser</a>
+            ) : (
+              <button type="button" disabled={Boolean(captureId)} onClick={() => void startDarazLogin()}>
+                {captureId ? "Browser active" : "Open Daraz browser"}
+              </button>
+            )}
             <button type="button" disabled={!captureId} onClick={() => void saveDarazLogin()}>Save session</button>
             <button type="button" className="light-button" disabled={!captureId && darazSession.status === "missing"} onClick={() => void resetDarazLogin()}>Reset</button>
             <button type="button" className="light-button" disabled={!captureId} onClick={() => void stopDarazBrowser()}>Stop browser</button>
           </div>
-          {browserUrl && <a className="browser-link" href={browserUrl} target="_blank" rel="noreferrer">Open remote browser</a>}
+          {browserUrl && !captureId && <a className="browser-link" href={browserUrl} target="_blank" rel="noreferrer">Open remote browser</a>}
           <button type="button" className="primary-action" disabled={checking || links.length === 0} onClick={() => void checkAllLinks()}>
-            {checking ? "Checking..." : "Check saved links"}
+            {checking ? "Queued..." : "Check saved links"}
           </button>
-          <details className="remember-login">
-            <summary>Optional Daraz auto-login</summary>
-            <form className="inline-form" onSubmit={(event) => void saveDarazCredentials(event)}>
-              <input value={darazUsername} onChange={(event) => setDarazUsername(event.target.value)} placeholder="Daraz email or phone" autoComplete="username" />
-              <input value={darazPassword} onChange={(event) => setDarazPassword(event.target.value)} placeholder={credentials.saved ? "New password" : "Daraz password"} type="password" autoComplete="current-password" />
-              <button type="submit">Save encrypted</button>
-            </form>
-            {credentials.saved && (
-              <p>
-                Saved for {credentials.username}. <button type="button" className="text-button" onClick={() => void deleteDarazCredentials()}>Remove</button>
-              </p>
-            )}
-          </details>
+          {activeJob && <p className="job-state">{priceCheckJobLabel(activeJob)}</p>}
           {darazSession.message && <p className="attention-message">{darazSession.message}</p>}
           {message && <p className="message">{message}</p>}
         </aside>
@@ -551,6 +496,113 @@ function UserPanel() {
         </section>
       )}
     </>
+  );
+}
+
+function SettingsPanel() {
+  const [settings, setSettings] = useState<UserSettings | undefined>();
+  const [credentials, setCredentials] = useState<DarazCredentialStatus>({ saved: false });
+  const [darazUsername, setDarazUsername] = useState("");
+  const [darazPassword, setDarazPassword] = useState("");
+  const [intervalHours, setIntervalHours] = useState(24);
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  async function refresh() {
+    const [settingsResponse, credentialStatus] = await Promise.all([
+      fetchJson<UserSettings>("/api/settings"),
+      fetchJson<DarazCredentialStatus>("/api/daraz/credentials")
+    ]);
+    setSettings(settingsResponse);
+    setAutoEnabled(settingsResponse.autoPriceCheckEnabled);
+    setIntervalHours(settingsResponse.autoPriceCheckIntervalHours);
+    setCredentials(credentialStatus);
+    setDarazUsername(credentialStatus.username ?? "");
+  }
+
+  async function saveSettings(event: React.FormEvent) {
+    event.preventDefault();
+    try {
+      const updated = await patchJson<UserSettings>("/api/settings", {
+        autoPriceCheckEnabled: autoEnabled,
+        autoPriceCheckIntervalHours: intervalHours
+      });
+      setSettings(updated);
+      setMessage("Settings saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function saveDarazCredentials(event: React.FormEvent) {
+    event.preventDefault();
+    try {
+      await postJson("/api/daraz/credentials", { username: darazUsername, password: darazPassword });
+      setDarazPassword("");
+      setMessage("Daraz credentials saved for best-effort auto-login.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function deleteDarazCredentials() {
+    await fetchJson("/api/daraz/credentials", { method: "DELETE" });
+    setDarazUsername("");
+    setDarazPassword("");
+    setMessage("Saved Daraz credentials removed.");
+    await refresh();
+  }
+
+  return (
+    <section className="settings-grid">
+      <section className="price-section">
+        <div className="section-title">
+          <h2>Auto Price Checking</h2>
+          <span className={`status ${settings?.autoPriceCheckEnabled ? "checked" : "blocked"}`}>
+            {settings?.autoPriceCheckEnabled ? "on" : "off"}
+          </span>
+        </div>
+        <form className="settings-form" onSubmit={(event) => void saveSettings(event)}>
+          <label className="checkbox-row">
+            <input type="checkbox" checked={autoEnabled} onChange={(event) => setAutoEnabled(event.target.checked)} />
+            <span>Run automatic final-price checks</span>
+          </label>
+          <label>
+            Check interval in hours
+            <input type="number" min={1} max={24} value={intervalHours} onChange={(event) => setIntervalHours(Number(event.target.value))} />
+          </label>
+          <button type="submit">Save settings</button>
+        </form>
+        <div className="settings-meta">
+          <p>Next run: {settings?.autoPriceCheckEnabled && settings.autoPriceCheckNextRunAt ? new Date(settings.autoPriceCheckNextRunAt).toLocaleString() : "Not scheduled"}</p>
+          <p>Last auto check: {settings?.autoPriceCheckLastRunAt ? `${new Date(settings.autoPriceCheckLastRunAt).toLocaleString()} (${settings.autoPriceCheckLastStatus ?? "unknown"})` : "None yet"}</p>
+          {settings?.autoPriceCheckLastMessage && <p>{settings.autoPriceCheckLastMessage}</p>}
+        </div>
+      </section>
+
+      <section className="price-section">
+        <div className="section-title">
+          <h2>Daraz Credentials</h2>
+          <span className={`status ${credentials.saved ? "checked" : "needs_attention"}`}>{credentials.saved ? "saved" : "missing"}</span>
+        </div>
+        <form className="settings-form" onSubmit={(event) => void saveDarazCredentials(event)}>
+          <input value={darazUsername} onChange={(event) => setDarazUsername(event.target.value)} placeholder="Daraz email or phone" autoComplete="username" />
+          <input value={darazPassword} onChange={(event) => setDarazPassword(event.target.value)} placeholder={credentials.saved ? "New Daraz password" : "Daraz password"} type="password" autoComplete="current-password" />
+          <button type="submit">Save encrypted</button>
+        </form>
+        {credentials.saved && (
+          <p className="message">
+            Saved for {credentials.username}. <button type="button" className="text-button" onClick={() => void deleteDarazCredentials()}>Remove</button>
+          </p>
+        )}
+        {message && <p className="message">{message}</p>}
+      </section>
+    </section>
   );
 }
 
@@ -682,6 +734,14 @@ function plainStatus(status: string) {
   return status.replace(/_/g, " ");
 }
 
+function priceCheckJobLabel(job: PriceCheckJob) {
+  return `${plainStatus(job.source)}: ${plainStatus(job.status)}${job.message ? ` - ${job.message}` : ""}`;
+}
+
+function displayUser(user: AppUser) {
+  return user.displayName ? `${user.displayName}${user.email ? ` (${user.email})` : ""}` : user.email ?? user.username;
+}
+
 function sessionLabel(status: DarazSessionStatus) {
   switch (status) {
     case "saved":
@@ -729,6 +789,20 @@ async function postJson<T = unknown>(url: string, body: unknown): Promise<T> {
   });
   if (!response.ok) throw new Error(await readErrorMessage(response));
   return response.json() as Promise<T>;
+}
+
+async function patchJson<T = unknown>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readErrorMessage(response));
+  return response.json() as Promise<T>;
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 
 async function readErrorMessage(response: Response): Promise<string> {

@@ -33,9 +33,7 @@ const execFileAsync = promisify(execFile);
 const originalEnv = {
   CARTTRUTH_BROWSER_MODE: process.env.CARTTRUTH_BROWSER_MODE,
   CARTTRUTH_DARAZ_CHECK_HEADLESS: process.env.CARTTRUTH_DARAZ_CHECK_HEADLESS,
-  DISPLAY: process.env.DISPLAY,
-  CARTTRUTH_ADMIN_USERNAME: process.env.CARTTRUTH_ADMIN_USERNAME,
-  CARTTRUTH_ADMIN_PASSWORD: process.env.CARTTRUTH_ADMIN_PASSWORD
+  DISPLAY: process.env.DISPLAY
 };
 
 const product: DarazSelectedProduct = {
@@ -465,8 +463,6 @@ describe("Daraz check Buy Now flow", () => {
     process.env.CARTTRUTH_BROWSER_MODE = "vnc";
     delete process.env.CARTTRUTH_DARAZ_CHECK_HEADLESS;
     delete process.env.DISPLAY;
-    process.env.CARTTRUTH_ADMIN_USERNAME = "admin";
-    process.env.CARTTRUTH_ADMIN_PASSWORD = "password123";
     const proxy = testProxyProfile();
 
     const page = new FakeDarazPage({
@@ -496,10 +492,11 @@ describe("Daraz check Buy Now flow", () => {
       proxyProfile: proxy
     });
     await runtime.bootstrap();
-    const user = runtime.store.findUserByUsername("admin");
-    if (!user) {
-      throw new Error("Expected bootstrap admin user.");
-    }
+    const user = runtime.store.upsertGoogleUser({
+      googleSub: "runtime-user-sub",
+      email: "runtime-user@example.com",
+      role: "user"
+    });
     markDarazProfileSessionSaved(join(sessionsDir, "users", user.id), undefined, proxySummary(proxy));
 
     const result = await runtime.checkDaraz(user.id, { products: [product] });
@@ -1023,8 +1020,6 @@ function restoreEnv(): void {
   restoreEnvValue("CARTTRUTH_BROWSER_MODE", originalEnv.CARTTRUTH_BROWSER_MODE);
   restoreEnvValue("CARTTRUTH_DARAZ_CHECK_HEADLESS", originalEnv.CARTTRUTH_DARAZ_CHECK_HEADLESS);
   restoreEnvValue("DISPLAY", originalEnv.DISPLAY);
-  restoreEnvValue("CARTTRUTH_ADMIN_USERNAME", originalEnv.CARTTRUTH_ADMIN_USERNAME);
-  restoreEnvValue("CARTTRUTH_ADMIN_PASSWORD", originalEnv.CARTTRUTH_ADMIN_PASSWORD);
 }
 
 function restoreEnvValue(key: string, value: string | undefined): void {

@@ -2,7 +2,7 @@
 
 A hosted Daraz.lk final-price checker for multiple users.
 
-Users sign in to CartTruth, save Daraz product links, connect their own Daraz account, and run on-demand Buy Now checkout checks. Each user has an isolated Daraz browser profile and can only see their own links, runs, and evidence.
+Users sign in to CartTruth with Google, save Daraz product links, connect their own Daraz account, and run on-demand Buy Now checkout checks. Each user has an isolated Daraz browser profile and can only see their own links, runs, and evidence.
 
 Production domain:
 
@@ -24,19 +24,17 @@ Open the URL printed by the server, usually:
 http://localhost:5173
 ```
 
-On first start, if the SQLite database has no users, the app creates a bootstrap admin. Defaults:
+CartTruth uses Google OAuth only. Configure a Google Web application OAuth client before signing in locally. For local development, add this authorized redirect URI in Google Cloud:
 
 ```text
-username: admin
-password: admin12345
+http://localhost:5173/api/auth/google/callback
 ```
-
-Set `CARTTRUTH_ADMIN_USERNAME` and `CARTTRUTH_ADMIN_PASSWORD` in `.env.local` before first start to override this.
 
 ## Daraz Login Model
 
-- Admin creates CartTruth users.
-- Each user logs into CartTruth with their own app account.
+- Any verified Google account can sign up.
+- Admin access is granted to emails listed in `CARTTRUTH_ADMIN_EMAILS`.
+- Each user logs into CartTruth with their own Google account.
 - Each user opens their own Daraz browser session from the dashboard.
 - If Daraz asks for OTP, captcha, or verification, that user completes it in their own remote browser.
 - Saved Daraz profiles are stored per user under `/data/sessions/users/{userId}/` in Docker.
@@ -57,8 +55,10 @@ CARTTRUTH_LOG_LEVEL=debug
 CARTTRUTH_BROWSER_MODE=vnc
 CARTTRUTH_DARAZ_CHECK_HEADLESS=true
 CARTTRUTH_BROWSER_IDLE_TIMEOUT_MS=900000
-CARTTRUTH_ADMIN_USERNAME=admin
-CARTTRUTH_ADMIN_PASSWORD=temporary-strong-password
+CARTTRUTH_GOOGLE_CLIENT_ID=your-google-client-id
+CARTTRUTH_GOOGLE_CLIENT_SECRET=your-google-client-secret
+CARTTRUTH_GOOGLE_REDIRECT_URI=https://carttruth.knurdz.org/api/auth/google/callback
+CARTTRUTH_ADMIN_EMAILS=your-admin@gmail.com
 CARTTRUTH_ENCRYPTION_KEY=replace-with-openssl-rand-base64-32
 CARTTRUTH_TORCH_ISP_PROXY=host:61234:username:password
 ```
@@ -67,6 +67,34 @@ Generate an encryption key:
 
 ```bash
 openssl rand -base64 32
+```
+
+## Google OAuth Setup
+
+1. Open Google Cloud Console.
+2. Create or select a project.
+3. Configure the OAuth consent screen/branding for the app.
+4. Create credentials:
+
+```text
+APIs & Services -> Credentials -> Create Credentials -> OAuth client ID
+Application type: Web application
+```
+
+5. Add authorized redirect URIs:
+
+```text
+https://carttruth.knurdz.org/api/auth/google/callback
+http://localhost:5173/api/auth/google/callback
+```
+
+6. Copy the generated Client ID and Client Secret into `.env`:
+
+```bash
+CARTTRUTH_GOOGLE_CLIENT_ID=...
+CARTTRUTH_GOOGLE_CLIENT_SECRET=...
+CARTTRUTH_GOOGLE_REDIRECT_URI=https://carttruth.knurdz.org/api/auth/google/callback
+CARTTRUTH_ADMIN_EMAILS=your-admin@gmail.com
 ```
 
 ## VPS Hosting Via Git
@@ -118,7 +146,7 @@ cp .env.example .env
 nano .env
 ```
 
-Set `CARTTRUTH_TORCH_ISP_PROXY`, `CARTTRUTH_ENCRYPTION_KEY`, and a temporary `CARTTRUTH_ADMIN_PASSWORD`.
+Set `CARTTRUTH_GOOGLE_CLIENT_ID`, `CARTTRUTH_GOOGLE_CLIENT_SECRET`, `CARTTRUTH_ADMIN_EMAILS`, `CARTTRUTH_TORCH_ISP_PROXY`, and `CARTTRUTH_ENCRYPTION_KEY`.
 
 6. Start:
 
@@ -139,10 +167,9 @@ docker compose logs --tail=100 caddy
 8. First app setup:
 
 - Open `https://carttruth.knurdz.org`.
-- Login with the bootstrap admin.
-- Change the admin password.
-- Create normal users.
-- Each user logs in, opens their Daraz browser, completes OTP/captcha if needed, saves the Daraz session, saves product links, and runs checks.
+- Sign in with a Google account listed in `CARTTRUTH_ADMIN_EMAILS`.
+- Other users sign in with Google to create their own normal accounts.
+- Each user opens their Daraz browser, completes OTP/captcha if needed, saves the Daraz session, saves product links, and runs checks.
 
 ## Update Later
 
@@ -173,7 +200,7 @@ Useful checks:
 ```bash
 docker compose exec carttruth sh -lc 'ls -lah /data /data/runs /data/sessions'
 docker compose exec carttruth sh -lc 'sqlite3 /data/carttruth.db ".tables"'
-docker compose exec carttruth sh -lc 'sqlite3 /data/carttruth.db "select username, role, disabled from users;"'
+docker compose exec carttruth sh -lc 'sqlite3 /data/carttruth.db "select email, role, disabled from users;"'
 ```
 
 Look for fields like:

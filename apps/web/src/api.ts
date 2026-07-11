@@ -3,13 +3,16 @@ import express, { type Express } from "express";
 import { z } from "zod";
 import { DarazCheckRequestSchema } from "@carttruth/schemas";
 import {
+  clearOAuthCookie,
   clearSessionCookie,
   encryptSecret,
-  hashPassword,
+  googleRedirectUri,
+  newOAuthCookieValue,
   newSessionCookie,
   readCookie,
+  safeEqualString,
+  serializeOAuthCookie,
   serializeSessionCookie,
-  verifyPassword,
   type UserRole
 } from "./auth.js";
 import { requestId } from "./logger.js";
@@ -23,6 +26,14 @@ const DarazSearchBodySchema = z.object({
 const DarazProductLinkBodySchema = z.object({
   url: z.string().url()
 });
+
+const UserSettingsBodySchema = z.object({
+  autoPriceCheckEnabled: z.boolean().optional(),
+  autoPriceCheckIntervalHours: z.number().int().min(1).max(24).optional()
+});
+
+const OAUTH_STATE_COOKIE = "carttruth_oauth_state";
+const OAUTH_NONCE_COOKIE = "carttruth_oauth_nonce";
 
 export function createApiApp(runtime: LocalRuntime): Express {
   const app = express();
@@ -52,24 +63,84 @@ export function createApiApp(runtime: LocalRuntime): Express {
     });
   });
 
-  app.post("/api/auth/login", async (request, response, next) => {
+  app.get("/api/auth/google/start", (request, response, next) => {
     try {
-      const body = z.object({
-        username: z.string().min(1),
-        password: z.string().min(1)
-      }).parse(request.body ?? {});
-      const user = runtime.store.findUserByUsername(body.username);
-      if (!user || user.disabled || !await verifyPassword(body.password, user.passwordHash)) {
-        runtime.logger.warn("login failed", { username: body.username });
-        response.status(401).json({ error: "Invalid username or password." });
+      const state = newOAuthCookieValue();
+      const nonce = newOAuthCookieValue();
+      const redirectUri = googleRedirectUri();
+      response.setHeader("set-cookie", [
+        serializeOAuthCookie(OAUTH_STATE_COOKIE, state),
+        serializeOAuthCookie(OAUTH_NONCE_COOKIE, nonce)
+      ]);
+      response.redirect(runtime.googleOAuthClient().authorizationUrl({ state, nonce, redirectUri }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/auth/google/callback", async (request, response, next) => {
+    const clearOAuthCookies = [
+      clearOAuthCookie(OAUTH_STATE_COOKIE),
+      clearOAuthCookie(OAUTH_NONCE_COOKIE)
+    ];
+    try {
+      const query = z.object({
+        code: z.string().min(1).optional(),
+        state: z.string().min(1).optional(),
+        error: z.string().min(1).optional()
+      }).parse(request.query);
+      if (query.error) {
+        response.setHeader("set-cookie", clearOAuthCookies);
+        response.redirect(`/?auth_error=${encodeURIComponent(`Google sign-in failed: ${query.error}`)}`);
         return;
       }
+      if (!query.code || !query.state) {
+        response.setHeader("set-cookie", clearOAuthCookies);
+        response.status(400).json({ error: "Google sign-in callback was missing required fields." });
+        return;
+      }
+
+      const state = readCookie(request.headers.cookie, OAUTH_STATE_COOKIE);
+      const nonce = readCookie(request.headers.cookie, OAUTH_NONCE_COOKIE);
+      if (!safeEqualString(state, query.state) || !nonce) {
+        response.setHeader("set-cookie", clearOAuthCookies);
+        response.status(400).json({ error: "Invalid Google sign-in state." });
+        return;
+      }
+
+      const identity = await runtime.googleOAuthClient().verifyCallback({
+        code: query.code,
+        nonce,
+        redirectUri: googleRedirectUri()
+      });
+      if (!identity.emailVerified) {
+        response.setHeader("set-cookie", clearOAuthCookies);
+        response.status(403).json({ error: "Google email is not verified." });
+        return;
+      }
+      const user = runtime.store.upsertGoogleUser({
+        googleSub: identity.sub,
+        email: identity.email,
+        ...(identity.displayName ? { displayName: identity.displayName } : {}),
+        ...(identity.avatarUrl ? { avatarUrl: identity.avatarUrl } : {}),
+        role: runtime.roleForGoogleEmail(identity.email)
+      });
+      if (user.disabled) {
+        response.setHeader("set-cookie", clearOAuthCookies);
+        response.status(403).json({ error: "This CartTruth account is disabled." });
+        return;
+      }
+
       const session = newSessionCookie();
       runtime.store.createSession(user.id, session.hash, session.expiresAt);
-      runtime.logger.info("login succeeded", { userId: user.id, username: user.username, role: user.role });
-      response.setHeader("set-cookie", serializeSessionCookie(session.token, session.expiresAt));
-      response.json({ user: publicUser(user) });
+      runtime.logger.info("google login succeeded", { userId: user.id, email: user.email, role: user.role });
+      response.setHeader("set-cookie", [
+        ...clearOAuthCookies,
+        serializeSessionCookie(session.token, session.expiresAt)
+      ]);
+      response.redirect("/");
     } catch (error) {
+      response.setHeader("set-cookie", clearOAuthCookies);
       next(error);
     }
   });
@@ -89,49 +160,8 @@ export function createApiApp(runtime: LocalRuntime): Express {
     response.json({ user: user ? publicUser(user) : undefined });
   });
 
-  app.post("/api/auth/change-password", requireUser(runtime), async (request, response, next) => {
-    try {
-      const body = z.object({ password: z.string().min(8) }).parse(request.body ?? {});
-      runtime.store.updateUserPassword(request.user.id, await hashPassword(body.password), false);
-      response.json({ user: publicUser({ ...request.user, mustChangePassword: false }) });
-    } catch (error) {
-      next(error);
-    }
-  });
-
   app.get("/api/admin/users", requireAdmin(runtime), (_request, response) => {
     response.json({ users: runtime.store.listUsers().map(publicUser) });
-  });
-
-  app.post("/api/admin/users", requireAdmin(runtime), async (request, response, next) => {
-    try {
-      const body = z.object({
-        username: z.string().min(3),
-        password: z.string().min(8),
-        role: z.enum(["admin", "user"]).default("user")
-      }).parse(request.body ?? {});
-      const user = runtime.store.createUser({
-        username: body.username,
-        passwordHash: await hashPassword(body.password),
-        role: body.role,
-        mustChangePassword: true
-      });
-      runtime.logger.info("admin created user", { adminUserId: request.user.id, createdUserId: user.id, username: user.username, role: user.role });
-      response.status(201).json({ user: publicUser(user) });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/admin/users/:userId/password", requireAdmin(runtime), async (request, response, next) => {
-    try {
-      const body = z.object({ password: z.string().min(8) }).parse(request.body ?? {});
-      runtime.store.updateUserPassword(routeParam(request, "userId"), await hashPassword(body.password), true);
-      runtime.logger.info("admin reset user password", { adminUserId: request.user.id, targetUserId: routeParam(request, "userId") });
-      response.json({ ok: true });
-    } catch (error) {
-      next(error);
-    }
   });
 
   app.post("/api/admin/users/:userId/disabled", requireAdmin(runtime), (request, response, next) => {
@@ -152,6 +182,22 @@ export function createApiApp(runtime: LocalRuntime): Express {
         timeoutMs: z.number().int().positive().max(60000).optional()
       }).parse(request.body ?? {});
       response.json(await runtime.testProxy(body.url, body.timeoutMs));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/settings", requireUser(runtime), (request, response) => {
+    response.json(runtime.settingsForUser(request.user.id));
+  });
+
+  app.patch("/api/settings", requireUser(runtime), (request, response, next) => {
+    try {
+      const body = UserSettingsBodySchema.parse(request.body ?? {});
+      response.json(runtime.updateSettingsForUser(request.user.id, {
+        ...(body.autoPriceCheckEnabled !== undefined ? { autoPriceCheckEnabled: body.autoPriceCheckEnabled } : {}),
+        ...(body.autoPriceCheckIntervalHours !== undefined ? { autoPriceCheckIntervalHours: body.autoPriceCheckIntervalHours } : {})
+      }));
     } catch (error) {
       next(error);
     }
@@ -298,9 +344,11 @@ export function createApiApp(runtime: LocalRuntime): Express {
     try {
       const body = DarazProductLinkBodySchema.parse(request.body);
       const link = await runtime.addSavedLink(request.user.id, body.url);
+      const checkJob = runtime.enqueueSavedLinkCheck(request.user.id, "link_added", [link.id]);
       response.status(201).json({
         link,
-        message: "Product page price saved. Final checkout price check can start."
+        checkJob: publicPriceCheckJob(checkJob),
+        message: "Product page price saved. Final checkout price check queued."
       });
     } catch (error) {
       if (error instanceof DarazSessionActionRequiredError) {
@@ -314,6 +362,29 @@ export function createApiApp(runtime: LocalRuntime): Express {
       }
       next(error);
     }
+  });
+
+  app.post("/api/links/check-jobs", requireUser(runtime), (request, response, next) => {
+    try {
+      const body = z.object({ linkIds: z.array(z.string().min(1)).optional() }).parse(request.body ?? {});
+      const job = runtime.enqueueSavedLinkCheck(request.user.id, "manual", body.linkIds);
+      response.status(202).json({ job: publicPriceCheckJob(job) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/price-check-jobs", requireUser(runtime), (request, response) => {
+    response.json({ jobs: runtime.listPriceCheckJobs(request.user.id).map(publicPriceCheckJob) });
+  });
+
+  app.get("/api/price-check-jobs/:jobId", requireUser(runtime), (request, response) => {
+    const job = runtime.getPriceCheckJob(request.user.id, routeParam(request, "jobId"));
+    if (!job) {
+      response.status(404).json({ error: "Price check job not found." });
+      return;
+    }
+    response.json({ job: publicPriceCheckJob(job) });
   });
 
   app.delete("/api/links/:linkId", requireUser(runtime), (request, response) => {
@@ -421,14 +492,58 @@ function requireAdmin(runtime: LocalRuntime) {
   };
 }
 
-function publicUser(user: { id: string; username: string; role: UserRole; disabled: boolean; mustChangePassword: boolean; createdAt: string }) {
+function publicUser(user: {
+  id: string;
+  username: string;
+  googleSub?: string;
+  email?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  role: UserRole;
+  disabled: boolean;
+  mustChangePassword: boolean;
+  createdAt: string;
+}) {
   return {
     id: user.id,
     username: user.username,
+    googleSub: user.googleSub,
+    email: user.email,
+    displayName: user.displayName,
+    avatarUrl: user.avatarUrl,
     role: user.role,
     disabled: user.disabled,
     mustChangePassword: user.mustChangePassword,
     createdAt: user.createdAt
+  };
+}
+
+function publicPriceCheckJob(job: {
+  id: string;
+  userId: string;
+  source: string;
+  status: string;
+  linkIds?: string[];
+  runId?: string;
+  message?: string;
+  sessionJson?: string;
+  queuedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  updatedAt: string;
+}) {
+  return {
+    id: job.id,
+    source: job.source,
+    status: job.status,
+    linkIds: job.linkIds,
+    runId: job.runId,
+    message: job.message,
+    session: job.sessionJson ? JSON.parse(job.sessionJson) as unknown : undefined,
+    queuedAt: job.queuedAt,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt,
+    updatedAt: job.updatedAt
   };
 }
 
@@ -446,6 +561,18 @@ function formatApiError(error: unknown): { status: number; message: string } {
   }
 
   const message = error instanceof Error ? error.message : String(error);
+  if (/^Google OAuth is not configured/i.test(message)) {
+    return { status: 503, message };
+  }
+  if (/^Invalid Google sign-in state/i.test(message) || /^Google sign-in callback/i.test(message)) {
+    return { status: 400, message };
+  }
+  if (/^Google email is not verified/i.test(message)) {
+    return { status: 403, message };
+  }
+  if (/^Google did not return/i.test(message) || /^Google sign-in nonce/i.test(message) || /^Google sign-in failed/i.test(message)) {
+    return { status: 401, message };
+  }
   if (/^Paste a valid Daraz/i.test(message)) {
     return { status: 400, message };
   }

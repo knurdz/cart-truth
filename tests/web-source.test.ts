@@ -12,7 +12,10 @@ describe("Daraz dashboard source", () => {
     expect(source).toContain("Save and check");
     expect(source).toContain("Reading product page price");
     expect(source).toContain("Checking final checkout price");
-    expect(source).toContain("Add your Daraz email/phone and password before saving products.");
+    expect(source).toContain("Settings");
+    expect(source).toContain("Auto Price Checking");
+    expect(source).toContain("Daraz Credentials");
+    expect(source).toContain("Final checkout price check queued.");
     expect(source).toContain("Auto-login credentials saved. CartTruth will try to reconnect before checking.");
     expect(source).toContain("Reconnecting to Daraz");
     expect(source).toContain("Qty 1");
@@ -22,7 +25,6 @@ describe("Daraz dashboard source", () => {
     expect(source).toContain("Daraz login saved");
     expect(source).toContain("Login required");
     expect(source).not.toContain("allowGuestCheckout: true");
-    expect(source).not.toContain("type=\"number\"");
     expect(source).not.toContain("quantity: item.quantity + 1");
     expect(source).not.toContain("window.open(DARAZ_LOGIN_URL");
   });

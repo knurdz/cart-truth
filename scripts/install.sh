@@ -27,7 +27,6 @@ fi
 cd "$APP_DIR"
 
 if [ ! -f .env ]; then
-  ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '\n')"
   ENCRYPTION_KEY="$(openssl rand -base64 32 | tr -d '\n')"
   cat > .env <<EOF
 CARTTRUTH_DOMAIN=$DOMAIN
@@ -36,15 +35,20 @@ CARTTRUTH_LOG_LEVEL=debug
 CARTTRUTH_BROWSER_MODE=vnc
 CARTTRUTH_DARAZ_CHECK_HEADLESS=true
 CARTTRUTH_BROWSER_IDLE_TIMEOUT_MS=900000
-CARTTRUTH_ADMIN_USERNAME=admin
-CARTTRUTH_ADMIN_PASSWORD=$ADMIN_PASSWORD
+CARTTRUTH_GOOGLE_CLIENT_ID=
+CARTTRUTH_GOOGLE_CLIENT_SECRET=
+CARTTRUTH_GOOGLE_REDIRECT_URI=https://$DOMAIN/api/auth/google/callback
+CARTTRUTH_ADMIN_EMAILS=
 CARTTRUTH_ENCRYPTION_KEY=$ENCRYPTION_KEY
 CARTTRUTH_TORCH_ISP_PROXY=
 EOF
   chmod 600 .env
-  echo "Created .env with bootstrap admin password:"
-  echo "$ADMIN_PASSWORD"
-  echo "Edit .env and set CARTTRUTH_TORCH_ISP_PROXY before production use."
+  echo "Created .env."
+  echo "Edit .env and set Google OAuth credentials, CARTTRUTH_ADMIN_EMAILS, and CARTTRUTH_TORCH_ISP_PROXY before production use."
+fi
+
+if ! grep -Eq '^CARTTRUTH_GOOGLE_CLIENT_ID=.+$' .env || ! grep -Eq '^CARTTRUTH_GOOGLE_CLIENT_SECRET=.+$' .env; then
+  echo "Warning: Google OAuth credentials are empty in .env. Users cannot sign in until you set them." >&2
 fi
 
 if ! grep -Eq '^CARTTRUTH_TORCH_ISP_PROXY=.+$' .env; then
