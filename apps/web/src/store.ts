@@ -133,6 +133,13 @@ export interface ProxyEventSummary {
   byCountry: Array<{ key: string; count: number }>;
 }
 
+export interface ContactMessage {
+  id: string;
+  subject: string;
+  content: string;
+  createdAt: string;
+}
+
 interface SqlRow {
   [column: string]: unknown;
 }
@@ -262,6 +269,13 @@ export class AppStore {
         status TEXT NOT NULL CHECK (status IN ('success', 'failure', 'blocked', 'skipped')),
         elapsed_ms INTEGER,
         error_message TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS contact_messages (
+        id TEXT PRIMARY KEY,
+        subject TEXT NOT NULL,
+        content TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
     `);
@@ -991,6 +1005,39 @@ export class AppStore {
       const item = row as SqlRow;
       return { key: String(item.key ?? ""), count: Number(item.count ?? 0) };
     });
+  }
+
+  createContactMessage(input: { subject: string; content: string }): ContactMessage {
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    this.db.prepare(`
+      INSERT INTO contact_messages (id, subject, content, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(id, input.subject, input.content, now);
+    return {
+      id,
+      subject: input.subject,
+      content: input.content,
+      createdAt: now
+    };
+  }
+
+  listContactMessages(): ContactMessage[] {
+    const rows = this.db.prepare(`
+      SELECT id, subject, content, created_at
+      FROM contact_messages
+      ORDER BY created_at DESC
+    `).all() as SqlRow[];
+    return rows.map((row) => ({
+      id: String(row.id),
+      subject: String(row.subject),
+      content: String(row.content),
+      createdAt: String(row.created_at)
+    }));
+  }
+
+  deleteContactMessage(id: string): void {
+    this.db.prepare(`DELETE FROM contact_messages WHERE id = ?`).run(id);
   }
 
   private addColumnIfMissing(table: "users" | "user_settings", name: string, type: string): void {

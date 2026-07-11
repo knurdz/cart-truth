@@ -1,8 +1,8 @@
 # CartTruth
 
-CartTruth is a hosted Daraz.lk final-checkout price checker for multiple users.
+CartTruth is a hosted final-checkout price verification platform. Currently in **MVP preview**, the system supports price checking on **Daraz.lk**, but it is architected for generic extraction and we are actively expanding support for other major e-commerce platforms and tourism package booking websites.
 
-Users sign in with Google, save Daraz product links, connect their own Daraz account, and run Buy Now checkout checks that stop before purchase. CartTruth compares product-page prices with final checkout totals, including delivery and other checkout-level charges when Daraz exposes them.
+Users sign in with Google, save product links (currently supporting Daraz), connect their own Daraz account, and run Buy Now checkout checks that stop before purchase. CartTruth compares product-page prices with final checkout totals, including delivery and other checkout-level charges when Daraz exposes them.
 
 Production app:
 
@@ -14,7 +14,7 @@ https://carttruth.knurdz.org
 
 - Lets any verified Google account create a CartTruth account.
 - Gives admin access only to Google emails listed in `CARTTRUTH_ADMIN_EMAILS`.
-- Lets users save Daraz product links.
+- Lets users save product links (currently supporting Daraz).
 - Opens an isolated server-side Daraz browser for each user.
 - Lets users complete Daraz login, OTP, captcha, or verification in that remote browser.
 - Saves each user's Daraz browser profile separately.
@@ -425,7 +425,7 @@ Required production values:
 ```bash
 CARTTRUTH_DOMAIN=carttruth.knurdz.org
 CARTTRUTH_PUBLIC_URL=https://carttruth.knurdz.org
-CARTTRUTH_LOG_LEVEL=info
+CARTTRUTH_LOG_LEVEL=debug
 CARTTRUTH_BROWSER_MODE=vnc
 CARTTRUTH_DARAZ_CHECK_HEADLESS=true
 CARTTRUTH_BROWSER_IDLE_TIMEOUT_MS=900000

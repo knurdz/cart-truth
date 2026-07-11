@@ -640,6 +640,57 @@ describe("Automation API and MCP", () => {
   });
 });
 
+describe("Contact Form Messages", () => {
+  it("allows public contact message submission and lists/deletes them for admins", async () => {
+    const prevCookie = cookie;
+    cookie = ""; // clear cookie to simulate anonymous public user
+    const submitResponse = await postRaw("/api/contact", {
+      subject: "Test Subject",
+      content: "Test Message Content"
+    });
+    expect(submitResponse.status).toBe(201);
+    const submitJson = await submitResponse.json();
+    expect(submitJson.ok).toBe(true);
+    expect(submitJson.message.subject).toBe("Test Subject");
+    expect(submitJson.message.content).toBe("Test Message Content");
+    expect(submitJson.message.id).toBeDefined();
+
+    const badSubmit = await postRaw("/api/contact", {
+      subject: "   ",
+      content: "Valid message content"
+    });
+    expect(badSubmit.status).toBe(400);
+
+    const userCookie = await loginWithGoogle({
+      sub: "user-sub",
+      email: "user@example.com",
+      emailVerified: true,
+      displayName: "Normal User"
+    });
+    cookie = userCookie;
+    
+    const listDenied = await fetch(`${baseUrl}/api/admin/messages`, { headers: { cookie } });
+    expect(listDenied.status).toBe(403);
+
+    cookie = prevCookie; // restore admin cookie
+    const listResult = await get("/api/admin/messages");
+    expect(listResult.messages).toBeDefined();
+    expect(listResult.messages.length).toBeGreaterThanOrEqual(1);
+    const createdMsg = listResult.messages.find((m: any) => m.id === submitJson.message.id);
+    expect(createdMsg).toBeDefined();
+    expect(createdMsg.subject).toBe("Test Subject");
+    expect(createdMsg.content).toBe("Test Message Content");
+
+    const deleteResult = await deleteRaw(`/api/admin/messages/${createdMsg.id}`);
+    expect(deleteResult.status).toBe(200);
+
+    const listResultAfter = await get("/api/admin/messages");
+    const goneMsg = listResultAfter.messages.find((m: any) => m.id === createdMsg.id);
+    expect(goneMsg).toBeUndefined();
+  });
+});
+
+
 async function get(path: string) {
   const response = await fetch(`${baseUrl}${path}`, {
     headers: cookie ? { cookie } : {}

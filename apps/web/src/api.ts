@@ -673,6 +673,31 @@ export function createApiApp(runtime: LocalRuntime): Express {
     }
   });
 
+  const ContactMessageBodySchema = z.object({
+    subject: z.string().trim().min(1, "Subject is required.").max(200, "Subject too long."),
+    content: z.string().trim().min(1, "Message is required.").max(5000, "Message too long.")
+  });
+
+  app.post("/api/contact", (request, response, next) => {
+    try {
+      const body = ContactMessageBodySchema.parse(request.body ?? {});
+      const message = runtime.store.createContactMessage({ subject: body.subject, content: body.content });
+      runtime.logger.info("contact message received", { messageId: message.id, subject: message.subject });
+      response.status(201).json({ ok: true, message });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/admin/messages", requireAdmin(runtime), (_request, response) => {
+    response.json({ messages: runtime.store.listContactMessages() });
+  });
+
+  app.delete("/api/admin/messages/:messageId", requireAdmin(runtime), (request, response) => {
+    runtime.store.deleteContactMessage(routeParam(request, "messageId"));
+    response.json({ ok: true });
+  });
+
   app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
     const formatted = formatApiError(error);
     runtime.logger.error("api error", { message: formatted.message, status: formatted.status });

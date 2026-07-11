@@ -10,6 +10,10 @@ const apiOnly = process.argv.includes("--api-only");
 const defaultPort = apiOnly ? 4174 : 5173;
 const port = await resolvePort(Number(process.env.PORT ?? defaultPort), Boolean(process.env.PORT));
 const hmrPort = await resolvePort(Number(process.env.VITE_HMR_PORT ?? 24678), Boolean(process.env.VITE_HMR_PORT));
+process.env.PORT = String(port);
+if (!process.env.CARTTRUTH_PUBLIC_URL) {
+  process.env.CARTTRUTH_PUBLIC_URL = `http://localhost:${port}`;
+}
 const runtime = new LocalRuntime();
 await runtime.bootstrap();
 const app = express();
