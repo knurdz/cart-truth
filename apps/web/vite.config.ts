@@ -4,7 +4,8 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173
+    port: 5173,
+    allowedHosts: ["carttruth.knurdz.org", "localhost", "127.0.0.1"]
   },
   build: {
     outDir: "dist"
