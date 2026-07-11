@@ -1066,8 +1066,8 @@ function ContactSection() {
    SIDEBAR NAV ITEM
    ============================================================ */
 function SidebarNavItem({
-  icon, label, active, onClick
-}: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
+  icon, label, active, onClick, showPlus
+}: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; showPlus?: boolean }) {
   return (
     <button
       type="button"
@@ -1076,6 +1076,7 @@ function SidebarNavItem({
     >
       <span className="db-nav-icon">{icon}</span>
       <span className="db-nav-label">{label}</span>
+      {showPlus && <span className="db-nav-plus">+</span>}
     </button>
   );
 }
@@ -1459,149 +1460,114 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     <div className={`db-shell ${darkMode ? "dark-theme" : ""}`}>
       {/* ── SIDEBAR ── */}
       <aside className="db-sidebar">
+        {/* Logo */}
         <div className="db-sidebar-logo">
-          <div className="logo-quadrant-circle">
-            <div className="quadrant q1" />
-            <div className="quadrant q2" />
-            <div className="quadrant q3" />
-            <div className="quadrant q4" />
-          </div>
-          <span className="db-sidebar-logo-text">Dashboard</span>
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <circle cx="10" cy="10" r="4" fill="#1a1a1a" opacity="0.8"/>
+            <circle cx="22" cy="10" r="4" fill="#1a1a1a" opacity="0.5"/>
+            <circle cx="10" cy="22" r="4" fill="#1a1a1a" opacity="0.5"/>
+            <circle cx="22" cy="22" r="4" fill="#1a1a1a" opacity="0.3"/>
+          </svg>
+          <span className="db-sidebar-logo-text">CartTruth</span>
         </div>
 
+        {/* Nav */}
         <nav className="db-sidebar-nav">
           <SidebarNavItem
             icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                <rect x="3" y="3" width="7" height="9" />
-                <rect x="14" y="3" width="7" height="5" />
-                <rect x="14" y="12" width="7" height="9" />
-                <rect x="3" y="16" width="7" height="5" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
               </svg>
             }
-            label="Dashboard"
+            label="Home"
             active={tab === "dashboard"}
             onClick={() => setTab("dashboard")}
           />
           <SidebarNavItem
             icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-                <line x1="12" y1="22.08" x2="12" y2="12" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                <rect x="3" y="3" width="7" height="7" rx="1"/>
+                <rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/>
+                <rect x="14" y="14" width="7" height="7" rx="1"/>
               </svg>
             }
-            label="Products"
+            label="Projects"
             active={tab === "products"}
             onClick={() => setTab("products")}
+            showPlus
           />
           <SidebarNavItem
             icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                <rect x="3" y="5" width="18" height="14" rx="2"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+                <line x1="8" y1="3" x2="8" y2="7"/>
+                <line x1="16" y1="3" x2="16" y2="7"/>
               </svg>
             }
-            label="Customers"
+            label="Tasks"
             active={tab === "session"}
             onClick={() => setTab("session")}
+            showPlus
           />
-          {user.role === "admin" && (
-            <SidebarNavItem
-              icon={
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                  <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
-                  <line x1="3" y1="6" x2="21" y2="6" />
-                  <path d="M16 10a4 4 0 0 1-8 0" />
-                </svg>
-              }
-              label="Shop"
-              active={tab === "messages"}
-              onClick={() => setTab("messages")}
-            />
-          )}
-          {user.role === "admin" && (
-            <SidebarNavItem
-              icon={
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                  <line x1="12" y1="1" x2="12" y2="23" />
-                  <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-                </svg>
-              }
-              label="Income"
-              active={tab === "admin"}
-              onClick={() => setTab("admin")}
-            />
-          )}
           <SidebarNavItem
             icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
               </svg>
             }
-            label="Promote"
+            label="Team"
+            active={tab === "messages"}
+            onClick={() => { if (user.role === "admin") setTab("messages"); }}
+          />
+          <SidebarNavItem
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            }
+            label="Settings"
             active={tab === "settings"}
             onClick={() => setTab("settings")}
           />
         </nav>
 
-        {/* Bottom Sidebar Utility Icons */}
+        {/* Upgrade card */}
+        <div className="sidebar-upgrade-card">
+          <p className="sidebar-upgrade-title">Upgrade to Pro</p>
+          <p className="sidebar-upgrade-sub">Get 1 month free and unlock</p>
+          <button type="button" className="sidebar-upgrade-btn" onClick={() => setTab("settings")}>Upgrade</button>
+        </div>
+
+        {/* Bottom links */}
         <div className="db-sidebar-bottom">
-          <button type="button" className="sidebar-bottom-btn" onClick={() => { if (user.role === "admin") setTab("messages"); }} title="Messages">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <button type="button" className="sidebar-bottom-link" onClick={() => setTab("settings")}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            Help &amp; information
           </button>
-          <button type="button" className={`sidebar-bottom-btn ${darkMode ? "active" : ""}`} onClick={() => setDarkMode(true)} title="Dark Mode">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-          </button>
-          <button type="button" className={`sidebar-bottom-btn ${!darkMode ? "active" : ""}`} onClick={() => setDarkMode(false)} title="Light Mode">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <button type="button" className="sidebar-bottom-link sidebar-bottom-link--logout" onClick={() => void onLogout()}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="8" y1="12" x2="16" y2="12"/>
+            </svg>
+            Log out
           </button>
         </div>
       </aside>
 
       {/* ── MAIN CONTENT ── */}
       <div className="db-main">
-        {/* Topbar/Header */}
-        <div className="db-topbar">
-          <h1 className="db-topbar-title">{navLabel}</h1>
-          <div className="db-topbar-right">
-            <div className="db-topbar-search">
-              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14" style={{ color: "#94a3b8" }}>
-                <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-              </svg>
-              <input 
-                type="text" 
-                placeholder="Search anything..." 
-                className="db-topbar-search-input" 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            <button type="button" className="db-btn-create" onClick={() => setShowCreateModal(true)}>
-              Create
-            </button>
-            <div className="header-icon-btn" title="Notifications">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-              </svg>
-            </div>
-            <div className="header-icon-btn" onClick={() => { if (user.role === "admin") setTab("messages"); }} title="Chat">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-            </div>
-            <div className="db-topbar-avatar" onClick={() => onLogout()} title="Sign Out">
-              {user.avatarUrl
-                ? <img src={user.avatarUrl} alt={displayUser(user)} />
-                : <span>{(displayUser(user)[0] ?? "U").toUpperCase()}</span>
-              }
-            </div>
-          </div>
-        </div>
-
-        {/* Content area */}
+        {/* Content area — no persistent top bar, each tab renders its own header */}
         <div className="db-content">
           {tab === "dashboard" && (
             <DashboardOverview 
@@ -1609,7 +1575,9 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
               history={history} 
               latest={latest} 
               darazSession={darazSession} 
-              onNavigate={setTab} 
+              onNavigate={setTab}
+              user={user}
+              onCreateClick={() => setShowCreateModal(true)}
             />
           )}
           {tab === "products" && (
@@ -1705,282 +1673,260 @@ function DashboardOverview({
   history,
   latest,
   darazSession,
-  onNavigate
+  onNavigate,
+  user,
+  onCreateClick
 }: {
   links: SavedLink[];
   history: DarazCheckResult[];
   latest: DarazCheckResult | undefined;
   darazSession: DarazSession;
   onNavigate: (tab: "dashboard" | "products" | "session" | "messages" | "admin" | "settings") => void;
+  user: AppUser;
+  onCreateClick: () => void;
 }) {
-  const customersCount = links.length ? String(links.length) : "1,293";
-  const balanceVal = latest?.checkoutTotal ? formatMoney(latest.checkoutTotal) : "256k";
-  
-  // Avatars data
-  const avatars = [
-    { name: "Gladyce", url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop" },
-    { name: "Elbert", url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop" },
-    { name: "Dash", url: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop" },
-    { name: "Joyce", url: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100&h=100&fit=crop" },
-    { name: "Marina", url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop" }
-  ];
+  const firstName = (displayUser(user).split(" ")[0]) || "there";
+  const today = new Date().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
+  const finishedCount = history.filter(r => r.status === "checked").length;
+  const trackedHours = Math.max(history.length * 2, 8);
+  const efficiencyPct = history.length > 0 ? Math.min(99, Math.round(70 + (finishedCount / Math.max(history.length, 1)) * 29)) : 93;
 
-  // Bar chart hover state
-  const [hoveredBar, setHoveredBar] = useState<number>(4);
-  const chartData = [
-    { label: "Mon", val: "1.2m", height: 40 },
-    { label: "Tue", val: "1.5m", height: 50 },
-    { label: "Wed", val: "0.9m", height: 30 },
-    { label: "Thu", val: "1.8m", height: 60 },
-    { label: "Fri", val: "2.2m", height: 85 }, // selected by default
-    { label: "Sat", val: "1.3m", height: 45 },
-    { label: "Sun", val: "1.6m", height: 55 }
-  ];
+  // SVG line chart — two area curves
+  const [hoveredChartPt, setHoveredChartPt] = useState<number | null>(3);
+  const chartW = 540;
+  const chartH = 160;
+  const chartPad = { top: 16, right: 8, bottom: 28, left: 28 };
+  const innerW = chartW - chartPad.left - chartPad.right;
+  const innerH = chartH - chartPad.top - chartPad.bottom;
+  const xLabels = ["01","02","03","04","05","06","07"];
+  const thisMonthData = [7, 6.5, 7, 9.5, 10.2, 8, 9];
+  const lastMonthData = [7.5, 7, 6, 7, 8, 7.2, 7.8];
+  const maxVal = 12;
+  const toX = (i: number) => chartPad.left + (i / (xLabels.length - 1)) * innerW;
+  const toY = (v: number) => chartPad.top + innerH - (v / maxVal) * innerH;
+  const makePath = (data: number[]) =>
+    data.map((v, i) => `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
+  const makeArea = (data: number[]) =>
+    `${makePath(data)} L${toX(data.length - 1).toFixed(1)},${(chartPad.top + innerH).toFixed(1)} L${chartPad.left.toFixed(1)},${(chartPad.top + innerH).toFixed(1)} Z`;
 
-  // Popular products list (max 5)
-  const popularProducts = useMemo(() => {
-    const list: Array<{ id: string; title: string; subtitle: string; imageUrl: string; price: string; status: "Active" | "Offline" }> = [];
-    links.forEach((link, idx) => {
-      if (idx < 5) {
-        list.push({
-          id: link.id,
-          title: link.title,
-          subtitle: "Daraz Product",
-          imageUrl: link.imageUrl || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=150&h=150&fit=crop",
-          price: formatMoney(parseObservedPrice(link)),
-          status: darazSession.status === "saved" ? "Active" : "Offline"
-        });
-      }
-    });
-
-    const mockItems = [
-      { id: "mock-1", title: "Crypter - NFT UI Kit", subtitle: "Crypto kit", imageUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&h=150&fit=crop", price: "$3,250.00", status: "Active" as const },
-      { id: "mock-2", title: "Bento Pro 2.0 Illustrations", subtitle: "Illustration kit", imageUrl: "https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?w=150&h=150&fit=crop", price: "$7,890.00", status: "Active" as const },
-      { id: "mock-3", title: "Fleet - travel shopping kit", subtitle: "Travel kit", imageUrl: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=150&h=150&fit=crop", price: "$1,500.00", status: "Offline" as const },
-      { id: "mock-4", title: "SimpleSocial UI Design Kit", subtitle: "Social kit", imageUrl: "https://images.unsplash.com/photo-1527689368864-3a821dbccc34?w=150&h=150&fit=crop", price: "$9,999.99", status: "Active" as const },
-      { id: "mock-5", title: "Bento Pro vol. 2", subtitle: "Illustration kit", imageUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&h=150&fit=crop", price: "$4,750.00", status: "Active" as const }
+  // Tasks list
+  const tasks = useMemo(() => {
+    const mockTasks = [
+      { id: "t1", icon: "🔍", iconBg: "#e8eaf6", title: "Product Review for UI8 Market", status: "In progress" as const, statusColor: "#f97316", hours: `${links.length > 0 ? links.length * 2 : 4}h` },
+      { id: "t2", icon: "🔎", iconBg: "#fff3e0", title: "UX Research for Product", status: "On hold" as const, statusColor: "#3b82f6", hours: `${Math.max(history.length * 2, 8)}h` },
+      { id: "t3", icon: "💻", iconBg: "#e8f5e9", title: "App design and development", status: "Done" as const, statusColor: "#22c55e", hours: `${finishedCount > 0 ? finishedCount * 8 : 32}h` },
     ];
-
-    while (list.length < 5 && mockItems.length > 0) {
-      const item = mockItems.shift()!;
-      if (!list.some(x => x.title === item.title)) {
-        list.push(item);
-      }
+    if (links.length > 0) {
+      mockTasks[0].title = links[0].title.substring(0, 34) + (links[0].title.length > 34 ? "..." : "");
     }
-    return list.slice(0, 5);
-  }, [links, darazSession.status]);
+    return mockTasks;
+  }, [links, history, finishedCount]);
 
-  // Comments / Activity logs (max 3)
-  const activityLogs = useMemo(() => {
-    const list: Array<{ id: string; name: string; avatarUrl: string; target: string; time: string; text: string }> = [];
-    
-    // Convert runs to comments
-    history.forEach((run, idx) => {
-      if (idx < 3) {
-        const timeStr = run.finishedAt ? new Date(run.finishedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "Recently";
-        const avatarIdx = idx % avatars.length;
-        const statusText = run.status === "checked" 
-          ? `Verified price successfully. Checkout total: ${formatMoney(run.checkoutTotal)}`
-          : `Checked price. Run status: ${run.status}.`;
-        list.push({
-          id: run.runId || `run-${idx}`,
-          name: avatars[avatarIdx].name,
-          avatarUrl: avatars[avatarIdx].url,
-          target: run.products[0]?.title.substring(0, 20) + "..." || "Daraz Item",
-          time: timeStr,
-          text: statusText
-        });
-      }
-    });
-
-    const mockComments = [
-      { id: "comment-1", name: "Joyce", avatarUrl: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100&h=100&fit=crop", target: "Bento Pro 2.0", time: "09:00 AM", text: "Great work! When HTML version will be available? ⚡" },
-      { id: "comment-2", name: "Gladyce", avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop", target: "Food Delivery App", time: "08:00 AM", text: "Awesome design, this is really useful..." }
-    ];
-
-    while (list.length < 2 && mockComments.length > 0) {
-      list.push(mockComments.shift()!);
-    }
-
-    return list.slice(0, 2);
-  }, [history]);
+  const tasksDonePct = Math.round((tasks.filter(t => t.status === "Done").length / tasks.length) * 100);
 
   return (
-    <div className="overview-grid">
-      {/* LEFT COLUMN */}
-      <div className="overview-left">
-        {/* Stat Cards Container */}
-        <div className="overview-card-container">
-          <div className="overview-card-header-row">
-            <h2 className="overview-section-title">Overview</h2>
-            <div className="overview-select-wrap">
-              <select className="overview-select">
-                <option>Last month</option>
-                <option>Last week</option>
-              </select>
-            </div>
-          </div>
-          
-          <div className="overview-stats-row">
-            <div className="overview-stat-box">
-              <div className="stat-box-top">
-                <span className="stat-box-label">Customers</span>
-                <span className="stat-box-icon-wrap">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                </span>
-              </div>
-              <div className="stat-box-body">
-                <span className="stat-box-val">{customersCount}</span>
-                <div className="stat-box-trend-row">
-                  <span className="stat-box-badge badge-red">
-                    <span className="badge-arrow">↓</span> 36.8%
-                  </span>
-                  <span className="stat-box-sub">vs last month</span>
-                </div>
-              </div>
-            </div>
+    <div className="ov2-layout">
+      {/* ── GREETING HEADER ── */}
+      <div className="ov2-greeting-row">
+        <div>
+          <h1 className="ov2-greeting">Hello, {firstName}</h1>
+          <p className="ov2-greeting-sub">Track your Daraz price checks here. You almost reached a goal!</p>
+        </div>
+        <div className="ov2-date-pill">
+          <span className="ov2-date-text">{today}</span>
+          <button type="button" className="ov2-date-icon-btn" onClick={onCreateClick} title="Add product">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+          </button>
+        </div>
+      </div>
 
-            <div className="overview-stat-box">
-              <div className="stat-box-top">
-                <span className="stat-box-label">Balance</span>
-                <span className="stat-box-icon-wrap">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-                </span>
-              </div>
-              <div className="stat-box-body">
-                <span className="stat-box-val">{balanceVal}</span>
-                <div className="stat-box-trend-row">
-                  <span className="stat-box-badge badge-green">
-                    <span className="badge-arrow">↑</span> 36.8%
-                  </span>
-                  <span className="stat-box-sub">vs last month</span>
-                </div>
-              </div>
-            </div>
+      {/* ── STAT BOXES ── */}
+      <div className="ov2-stats-row">
+        <div className="ov2-stat-item">
+          <div className="ov2-stat-icon" style={{ background: "#f0f4ff" }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
+              <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/>
+              <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+            </svg>
           </div>
-
-          <div className="overview-banner">
-            <strong className="banner-alert-text">857 new customers today!</strong>
-            <span className="overview-banner-sub">Send a welcome message to all new customers.</span>
-          </div>
-
-          <div className="overview-avatars-row">
-            <div className="avatars-group">
-              {avatars.map((avatar, idx) => (
-                <div className="avatar-wrapper" key={idx} style={{ zIndex: 10 - idx }}>
-                  <img src={avatar.url} alt={avatar.name} className="avatar-img" />
-                  <span className="avatar-name">{avatar.name}</span>
-                </div>
-              ))}
-              <button type="button" className="avatar-view-all" onClick={() => onNavigate("session")}>
-                <span className="arrow-btn-symbol">➔</span>
-                <span className="avatar-name">View all</span>
-              </button>
+          <div className="ov2-stat-content">
+            <span className="ov2-stat-label">Finished</span>
+            <div className="ov2-stat-val-row">
+              <span className="ov2-stat-val">{finishedCount > 0 ? finishedCount : 18}</span>
+              <span className="ov2-stat-trend ov2-trend-down">▼ +{finishedCount > 0 ? Math.max(1, finishedCount - 3) : 8} tasks</span>
             </div>
           </div>
         </div>
-
-        {/* Product View Chart Card */}
-        <div className="overview-card-container" style={{ marginTop: 24 }}>
-          <div className="overview-card-header-row">
-            <h2 className="overview-section-title">Product view</h2>
-            <div className="overview-select-wrap">
-              <select className="overview-select">
-                <option>Last 7 days</option>
-                <option>Last 30 days</option>
-              </select>
+        <div className="ov2-stat-divider" />
+        <div className="ov2-stat-item">
+          <div className="ov2-stat-icon" style={{ background: "#fff8f0" }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <div className="ov2-stat-content">
+            <span className="ov2-stat-label">Tracked</span>
+            <div className="ov2-stat-val-row">
+              <span className="ov2-stat-val">{trackedHours}h</span>
+              <span className="ov2-stat-trend ov2-trend-up">▲ -{Math.max(1, Math.round(trackedHours * 0.19))} hours</span>
             </div>
           </div>
-
-          <div className="chart-wrapper">
-            <div className="chart-main-val">
-              {latest?.checkoutTotal ? formatMoney(latest.checkoutTotal) : "$10.2m"}
-            </div>
-            
-            <div className="chart-bars-container">
-              {chartData.map((day, idx) => {
-                const isActive = hoveredBar === idx;
-                return (
-                  <div 
-                    className="chart-bar-col" 
-                    key={idx}
-                    onMouseEnter={() => setHoveredBar(idx)}
-                  >
-                    {isActive && (
-                      <div className="chart-tooltip">
-                        <span className="tooltip-text">{day.val}</span>
-                        <span className="tooltip-arrow" />
-                      </div>
-                    )}
-                    <div className="chart-bar-track">
-                      {isActive && <div className="chart-bar-dot" />}
-                      <div 
-                        className={`chart-bar-fill ${isActive ? "active" : ""}`}
-                        style={{ height: `${day.height}%` }}
-                      />
-                    </div>
-                    <span className="chart-bar-label">{day.label}</span>
-                  </div>
-                );
-              })}
+        </div>
+        <div className="ov2-stat-divider" />
+        <div className="ov2-stat-item">
+          <div className="ov2-stat-icon" style={{ background: "#f0fff8" }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
+              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+              <polyline points="16 7 22 7 22 13"/>
+            </svg>
+          </div>
+          <div className="ov2-stat-content">
+            <span className="ov2-stat-label">Efficiency</span>
+            <div className="ov2-stat-val-row">
+              <span className="ov2-stat-val">{efficiencyPct}%</span>
+              <span className="ov2-stat-trend ov2-trend-down">▼ +{Math.round(efficiencyPct * 0.13)}%</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* RIGHT COLUMN */}
-      <div className="overview-right">
-        {/* Popular products block */}
-        <div className="overview-card-container">
-          <h2 className="overview-section-title" style={{ marginBottom: 16 }}>Popular products</h2>
-          <div className="popular-products-list">
-            {popularProducts.map((prod) => (
-              <div className="popular-product-row" key={prod.id}>
-                <div className="prod-img-wrap">
-                  <img src={prod.imageUrl} alt={prod.title} />
-                </div>
-                <div className="prod-info-wrap">
-                  <span className="prod-title">{prod.title}</span>
-                  <span className="prod-sub">{prod.subtitle}</span>
-                </div>
-                <div className="prod-meta-wrap">
-                  <span className="prod-price">{prod.price}</span>
-                  <span className={`prod-badge ${prod.status === "Active" ? "active" : "offline"}`}>
-                    {prod.status}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <button 
-            type="button" 
-            className="db-btn-all-products" 
-            onClick={() => onNavigate("products")}
-          >
-            All products
-          </button>
+      {/* ── PERFORMANCE CHART ── */}
+      <div className="ov2-section">
+        <div className="ov2-section-header">
+          <h2 className="ov2-section-title">Performance</h2>
+          <select className="ov2-period-select">  
+            <option>01-07 May</option>
+            <option>08-14 May</option>
+          </select>
         </div>
 
-        {/* Comments block */}
-        <div className="overview-card-container" style={{ marginTop: 24 }}>
-          <h2 className="overview-section-title" style={{ marginBottom: 16 }}>Comments</h2>
-          <div className="comments-list">
-            {activityLogs.map((comment) => (
-              <div className="comment-row" key={comment.id}>
-                <div className="comment-avatar-wrap">
-                  <img src={comment.avatarUrl} alt={comment.name} />
-                </div>
-                <div className="comment-body-wrap">
-                  <div className="comment-header">
-                    <span className="comment-author">{comment.name}</span>
-                    <span className="comment-target">on {comment.target}</span>
-                  </div>
-                  <span className="comment-time">{comment.time}</span>
-                  <p className="comment-text">{comment.text}</p>
-                </div>
-              </div>
+        <div className="ov2-chart-wrap">
+          <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="xMidYMid meet" style={{ overflow: "visible" }}>
+            <defs>
+              <linearGradient id="grad-blue" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#bfdbfe" stopOpacity="0.7"/>
+                <stop offset="100%" stopColor="#bfdbfe" stopOpacity="0"/>
+              </linearGradient>
+              <linearGradient id="grad-orange" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#fed7aa" stopOpacity="0.5"/>
+                <stop offset="100%" stopColor="#fed7aa" stopOpacity="0"/>
+              </linearGradient>
+            </defs>
+            {/* Y-axis labels */}
+            {["12h","8h","6h","2h","0h"].map((lbl, i) => {
+              const vals: Record<string, number> = {"12h": 12, "8h": 8, "6h": 6, "2h": 2, "0h": 0};
+              const y = toY(vals[lbl] ?? 0);
+              return (
+                <text key={lbl} x={chartPad.left - 6} y={y + 4} textAnchor="end" fontSize="10" fill="#9ca3af">{lbl}</text>
+              );
+            })}
+            {/* Grid lines */}
+            {[12, 8, 6, 2, 0].map(v => (
+              <line key={v} x1={chartPad.left} y1={toY(v)} x2={chartPad.left + innerW} y2={toY(v)} stroke="#f1f5f9" strokeWidth="1"/>
             ))}
+            {/* Area fills */}
+            <path d={makeArea(thisMonthData)} fill="url(#grad-blue)" />
+            <path d={makeArea(lastMonthData)} fill="url(#grad-orange)" />
+            {/* Lines */}
+            <path d={makePath(thisMonthData)} fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
+            <path d={makePath(lastMonthData)} fill="none" stroke="#f97316" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray="0"/>
+            {/* X-axis labels */}
+            {xLabels.map((lbl, i) => (
+              <text key={lbl} x={toX(i)} y={chartPad.top + innerH + 18} textAnchor="middle" fontSize="10" fill="#9ca3af">{lbl}</text>
+            ))}
+            {/* Interactive hover areas + dots */}
+            {xLabels.map((_, i) => (
+              <rect
+                key={i}
+                x={toX(i) - 20}
+                y={chartPad.top}
+                width="40"
+                height={innerH}
+                fill="transparent"
+                style={{ cursor: "pointer" }}
+                onMouseEnter={() => setHoveredChartPt(i)}
+                onMouseLeave={() => setHoveredChartPt(null)}
+              />
+            ))}
+            {hoveredChartPt !== null && (
+              <>
+                {/* Vertical dashed line */}
+                <line
+                  x1={toX(hoveredChartPt)} y1={chartPad.top}
+                  x2={toX(hoveredChartPt)} y2={chartPad.top + innerH}
+                  stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4,3"
+                />
+                {/* Dots */}
+                <circle cx={toX(hoveredChartPt)} cy={toY(thisMonthData[hoveredChartPt])} r="5" fill="#3b82f6" stroke="white" strokeWidth="2"/>
+                <circle cx={toX(hoveredChartPt)} cy={toY(lastMonthData[hoveredChartPt])} r="5" fill="#f97316" stroke="white" strokeWidth="2"/>
+                {/* Tooltip box */}
+                <foreignObject
+                  x={Math.min(toX(hoveredChartPt) - 60, chartW - 145)}
+                  y={toY(thisMonthData[hoveredChartPt]) - 100}
+                  width="130" height="90"
+                >
+                  <div className="chart-tooltip-box">
+                    <span className="chart-tooltip-date">{xLabels[hoveredChartPt]} May 2024</span>
+                    <div className="chart-tooltip-row">
+                      <span className="chart-tooltip-dot" style={{ background: "#3b82f6" }}/>
+                      <span className="chart-tooltip-key">This month</span>
+                      <span className="chart-tooltip-val">{thisMonthData[hoveredChartPt]}h</span>
+                    </div>
+                    <div className="chart-tooltip-row">
+                      <span className="chart-tooltip-dot" style={{ background: "#f97316" }}/>
+                      <span className="chart-tooltip-key">Last month</span>
+                      <span className="chart-tooltip-val">{lastMonthData[hoveredChartPt]}h</span>
+                    </div>
+                  </div>
+                </foreignObject>
+              </>
+            )}
+          </svg>
+        </div>
+      </div>
+
+      {/* ── CURRENT TASKS ── */}
+      <div className="ov2-section">
+        <div className="ov2-section-header">
+          <div className="ov2-tasks-title-row">
+            <h2 className="ov2-section-title">Current Tasks</h2>
+            <span className="ov2-tasks-done-pill">Done {tasksDonePct}%</span>
           </div>
+          <select className="ov2-period-select">
+            <option>Week</option>
+            <option>Month</option>
+          </select>
+        </div>
+
+        <div className="ov2-tasks-list">
+          {tasks.map(task => (
+            <div className="ov2-task-row" key={task.id}>
+              <div className="ov2-task-icon" style={{ background: task.iconBg }}>
+                <span style={{ fontSize: 18 }}>{task.icon}</span>
+              </div>
+              <span className="ov2-task-title">{task.title}</span>
+              <div className="ov2-task-status">
+                <span className="ov2-task-status-dot" style={{ background: task.statusColor }}/>
+                <span className="ov2-task-status-text" style={{ color: task.statusColor }}>{task.status}</span>
+              </div>
+              <div className="ov2-task-hours">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <span>{task.hours}</span>
+              </div>
+              <button type="button" className="ov2-task-more">
+                <span>•••</span>
+              </button>
+            </div>
+          ))}
         </div>
       </div>
     </div>
