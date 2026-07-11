@@ -113,6 +113,36 @@ type DarazBuyNowProductResult = {
   priceBreakdown: DarazPriceBreakdownItem[];
   globalAdjustments: Adjustment[];
 };
+type DarazBuyNowClickMethod = "role" | "text" | "mouse" | "dom" | "none" | "failed";
+type DarazBuyNowCandidate = {
+  index: number;
+  text: string;
+  tag: string;
+  className: string;
+  role: string;
+  source: string;
+  disabled: boolean;
+  target?: DarazCartClickTarget;
+};
+type DarazBuyNowSignal = {
+  kind: "strong_unavailable_text" | "generic_unavailable_text" | "disabled_buy_now";
+  text: string;
+};
+type DarazBuyNowClickDebug = {
+  beforeUrl: string;
+  afterUrl?: string;
+  clickMethod: DarazBuyNowClickMethod;
+  candidates: DarazBuyNowCandidate[];
+  availabilitySignals: DarazBuyNowSignal[];
+  clickedCandidate?: DarazBuyNowCandidate;
+  attempts: Array<{ method: DarazBuyNowClickMethod; candidate?: DarazBuyNowCandidate; beforeUrl: string; afterUrl?: string; error?: string }>;
+  textExcerpt: string;
+};
+type DarazBuyNowClickResult = { status: DarazProductStatus; message?: string; debug: DarazBuyNowClickDebug };
+type DarazBuyNowScanResult = {
+  candidates: DarazBuyNowCandidate[];
+  availabilitySignals: DarazBuyNowSignal[];
+};
 export type DarazSessionStatus = "missing" | "saved" | "needs_login" | "needs_verification" | "unknown";
 
 export type DarazSessionMetadata = {
@@ -1166,6 +1196,7 @@ async function checkDarazProductViaBuyNow(
   }
 
   const buyNow = await clickDarazBuyNow(page);
+  evidence.push(await evidenceStore.writeJson(runId, `daraz-buy-now-click-${fileKey}.json`, buyNow.debug));
   if (buyNow.status !== "checked") {
     evidence.push(await screenshot(evidenceStore, runId, page, `daraz-buy-now-${fileKey}-failed.png`));
     return {
@@ -1246,36 +1277,93 @@ async function checkDarazProductViaBuyNow(
   };
 }
 
-async function clickDarazBuyNow(page: Page): Promise<{ status: DarazProductStatus; message?: string }> {
+async function clickDarazBuyNow(page: Page): Promise<DarazBuyNowClickResult> {
+  const beforeUrl = page.url();
+  const text = await page.locator("body").innerText({ timeout: 10000 }).catch(() => "");
+  const scan = await scanDarazBuyNow(page).catch((): DarazBuyNowScanResult => ({
+    candidates: [],
+    availabilitySignals: availabilitySignalsFromText(text)
+  }));
+  const debug: DarazBuyNowClickDebug = {
+    beforeUrl,
+    clickMethod: "none",
+    candidates: scan.candidates,
+    availabilitySignals: scan.availabilitySignals,
+    attempts: [],
+    textExcerpt: redactCheckoutText(text)
+  };
+
   if (!isDarazProductPageUrl(page.url())) {
     return {
       status: "needs_attention",
-      message: "Daraz Buy Now can only be clicked from the product page."
+      message: "Daraz Buy Now can only be clicked from the product page.",
+      debug: { ...debug, afterUrl: page.url() }
     };
   }
 
   const state = await classifyPageState(page);
   if (state) {
     const status = cartStateToStatus(state);
-    return { status, message: statusMessage(status) };
+    return { status, message: statusMessage(status), debug: { ...debug, afterUrl: page.url() } };
   }
 
-  const text = await page.locator("body").innerText({ timeout: 10000 }).catch(() => "");
-  if (/out\s+of\s+stock|sold\s+out|currently\s+unavailable|not\s+available/i.test(text)) {
-    return { status: "unavailable", message: "This product is unavailable on Daraz." };
+  const enabledCandidates = scan.candidates.filter((candidate) => !candidate.disabled);
+  const hasStrongUnavailableSignal = scan.availabilitySignals.some((signal) => signal.kind === "strong_unavailable_text");
+  const hasDisabledBuyNowSignal = scan.availabilitySignals.some((signal) => signal.kind === "disabled_buy_now");
+  if (enabledCandidates.length === 0 && (hasStrongUnavailableSignal || hasDisabledBuyNowSignal)) {
+    return { status: "unavailable", message: "This product is unavailable on Daraz.", debug: { ...debug, afterUrl: page.url() } };
   }
 
-  const clicked = await clickButtonByText(page, ["Buy Now", "BUY NOW", "Buy now"]);
-  if (!clicked) {
-    return { status: "unavailable", message: "Could not find the Daraz Buy Now button for this product." };
+  const accessibleClick = await clickAccessibleButtonByText(page, ["Buy Now", "BUY NOW", "Buy now"]);
+  if (accessibleClick) {
+    debug.clickMethod = accessibleClick;
+    debug.attempts.push({ method: accessibleClick, beforeUrl });
+    await settleAfterBuyNowClick(page);
+    debug.attempts[debug.attempts.length - 1]!.afterUrl = page.url();
+    if (!isDarazProductPageUrl(page.url())) {
+      return { status: "checked", debug: { ...debug, afterUrl: page.url() } };
+    }
   }
 
-  await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => undefined);
-  await page.waitForTimeout(1200);
+  const candidatesToTry = enabledCandidates.slice(0, 2);
+  for (const candidate of candidatesToTry) {
+    const methods: DarazBuyNowClickMethod[] = candidate.target ? ["mouse", "dom"] : ["dom"];
+    for (const method of methods) {
+      const attempt = { method, candidate, beforeUrl: page.url() };
+      debug.attempts.push(attempt);
+      const clicked = await clickDarazBuyNowCandidate(page, candidate, method).catch((error): false => {
+        debug.attempts[debug.attempts.length - 1] = {
+          ...attempt,
+          method: "failed",
+          error: error instanceof Error ? error.message : String(error)
+        };
+        return false;
+      });
+      if (!clicked) {
+        continue;
+      }
+      debug.clickMethod = method;
+      debug.clickedCandidate = candidate;
+      await settleAfterBuyNowClick(page);
+      debug.attempts[debug.attempts.length - 1]!.afterUrl = page.url();
+      if (!isDarazProductPageUrl(page.url())) {
+        return { status: "checked", debug: { ...debug, afterUrl: page.url() } };
+      }
+    }
+  }
+
+  if (debug.clickMethod === "none" && scan.candidates.length === 0) {
+    return {
+      status: "unavailable",
+      message: "Could not find the Daraz Buy Now button for this product.",
+      debug: { ...debug, afterUrl: page.url() }
+    };
+  }
+
   const afterClickState = await classifyPageState(page);
   if (afterClickState) {
     const status = cartStateToStatus(afterClickState);
-    return { status, message: statusMessage(status) };
+    return { status, message: statusMessage(status), debug: { ...debug, afterUrl: page.url() } };
   }
 
   if (isDarazProductPageUrl(page.url())) {
@@ -1284,11 +1372,231 @@ async function clickDarazBuyNow(page: Page): Promise<{ status: DarazProductStatu
       status: "needs_attention",
       message: buyNowRequiresSelection(postClickText)
         ? "Daraz needs a product option selected before Buy Now can continue."
-        : "Daraz did not open checkout after Buy Now. Try final price check again."
+        : "Daraz Buy Now was visible, but checkout did not open. Try final price check again.",
+      debug: { ...debug, afterUrl: page.url() }
     };
   }
 
-  return { status: "checked" };
+  return { status: "checked", debug: { ...debug, afterUrl: page.url() } };
+}
+
+async function settleAfterBuyNowClick(page: Page): Promise<void> {
+  await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => undefined);
+  await page.waitForTimeout(1200);
+}
+
+async function clickAccessibleButtonByText(page: Page, labels: string[]): Promise<"role" | "text" | undefined> {
+  for (const label of labels) {
+    const locator = page.getByRole("button", { name: label });
+    const count = await locator.count().catch(() => 0);
+    if (count > 0) {
+      const clicked = await locator.first().click({ timeout: 5000 }).then(() => true).catch(() => false);
+      if (clicked) {
+        return "role";
+      }
+    }
+    const textLocator = page.getByText(label, { exact: false });
+    const textCount = await textLocator.count().catch(() => 0);
+    if (textCount > 0) {
+      const clicked = await textLocator.first().click({ timeout: 5000 }).then(() => true).catch(() => false);
+      if (clicked) {
+        return "text";
+      }
+    }
+  }
+  return undefined;
+}
+
+async function scanDarazBuyNow(page: Page): Promise<DarazBuyNowScanResult> {
+  const text = await page.locator("body").innerText({ timeout: 10000 }).catch(() => "");
+  const scanned = await page.evaluate(buildDarazBuyNowScanScript())
+    .then((result) => result as Partial<DarazBuyNowScanResult>)
+    .catch((): Partial<DarazBuyNowScanResult> => ({}));
+  const candidates = Array.isArray(scanned.candidates) ? scanned.candidates.slice(0, 12).map((candidate, index) => ({
+    index: typeof candidate.index === "number" ? candidate.index : index,
+    text: String(candidate.text ?? "").slice(0, 120),
+    tag: String(candidate.tag ?? "").slice(0, 32),
+    className: String(candidate.className ?? "").slice(0, 160),
+    role: String(candidate.role ?? "").slice(0, 64),
+    source: String(candidate.source ?? "dom").slice(0, 64),
+    disabled: Boolean(candidate.disabled),
+    ...(candidate.target ? { target: candidate.target } : {})
+  })) : [];
+  const signals = mergeBuyNowAvailabilitySignals([
+    ...availabilitySignalsFromText(text),
+    ...(Array.isArray(scanned.availabilitySignals) ? scanned.availabilitySignals : [])
+  ]);
+  return { candidates, availabilitySignals: signals };
+}
+
+async function clickDarazBuyNowCandidate(page: Page, candidate: DarazBuyNowCandidate, method: DarazBuyNowClickMethod): Promise<boolean> {
+  if (method === "mouse" && candidate.target) {
+    await page.mouse.click(candidate.target.x, candidate.target.y);
+    return true;
+  }
+  if (method === "dom") {
+    return await page.evaluate(buildDarazBuyNowDomClickScript(candidate.index))
+      .then((result) => Boolean((result as { clicked?: boolean } | undefined)?.clicked))
+      .catch(() => false);
+  }
+  return false;
+}
+
+function availabilitySignalsFromText(text: string): DarazBuyNowSignal[] {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const signals: DarazBuyNowSignal[] = [];
+  const strong = normalized.match(/out\s+of\s+stock|sold\s+out|currently\s+unavailable|temporarily\s+unavailable|(?:item|product)\s+(?:is\s+)?unavailable/gi) ?? [];
+  for (const signal of strong) {
+    signals.push({ kind: "strong_unavailable_text", text: signal.slice(0, 120) });
+  }
+  const generic = normalized.match(/not\s+available/gi) ?? [];
+  for (const signal of generic) {
+    signals.push({ kind: "generic_unavailable_text", text: signal.slice(0, 120) });
+  }
+  return signals;
+}
+
+function mergeBuyNowAvailabilitySignals(signals: DarazBuyNowSignal[]): DarazBuyNowSignal[] {
+  const seen = new Set<string>();
+  const merged: DarazBuyNowSignal[] = [];
+  for (const signal of signals) {
+    const kind = signal.kind;
+    if (kind !== "strong_unavailable_text" && kind !== "generic_unavailable_text" && kind !== "disabled_buy_now") {
+      continue;
+    }
+    const text = String(signal.text ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+    const key = `${kind}:${text.toLowerCase()}`;
+    if (!text || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    merged.push({ kind, text });
+  }
+  return merged;
+}
+
+function buildDarazBuyNowScanScript(): string {
+  return `(() => {
+    ${darazBuyNowBrowserHelpers()}
+    const scan = scanBuyNowCandidates();
+    return {
+      candidates: scan.candidates.map(toPublicCandidate),
+      availabilitySignals: scan.availabilitySignals
+    };
+  })()`;
+}
+
+function buildDarazBuyNowDomClickScript(candidateIndex: number): string {
+  return `(() => {
+    ${darazBuyNowBrowserHelpers()}
+    const scan = scanBuyNowCandidates();
+    const candidate = scan.candidates.find((item) => item.index === ${JSON.stringify(candidateIndex)}) || scan.candidates[0];
+    if (!candidate || candidate.disabled) return { clicked: false };
+    candidate.element.scrollIntoView({ block: "center", inline: "center" });
+    candidate.element.click();
+    return { clicked: true, candidate: toPublicCandidate(candidate) };
+  })()`;
+}
+
+function darazBuyNowBrowserHelpers(): string {
+  return `
+    const compact = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+    const textFor = (element) => compact([
+      element.innerText,
+      element.textContent,
+      element.value,
+      element.getAttribute?.("aria-label"),
+      element.getAttribute?.("title")
+    ].filter(Boolean).join(" "));
+    const classFor = (element) => String(element.className || "");
+    const visibleRectFor = (element) => {
+      if (!element || typeof element.getBoundingClientRect !== "function") return undefined;
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle ? window.getComputedStyle(element) : undefined;
+      if (!rect || rect.width <= 0 || rect.height <= 0) return undefined;
+      if (style && (style.display === "none" || style.visibility === "hidden" || style.pointerEvents === "none")) return undefined;
+      if (rect.bottom < 0 || rect.right < 0 || rect.top > window.innerHeight || rect.left > window.innerWidth) return undefined;
+      return {
+        x: Math.round(rect.left + rect.width / 2),
+        y: Math.round(rect.top + rect.height / 2),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      };
+    };
+    const isDisabled = (element, text, className) => {
+      return Boolean(element.disabled)
+        || element.hasAttribute?.("disabled")
+        || element.getAttribute?.("aria-disabled") === "true"
+        || /disabled|not-allowed|sold[-_\\s]?out|out[-_\\s]?of[-_\\s]?stock/i.test(className)
+        || /sold\\s+out|out\\s+of\\s+stock|currently\\s+unavailable/i.test(text);
+    };
+    const isBuyNowCandidate = (element, text, className) => {
+      const role = element.getAttribute?.("role") || "";
+      const tag = element.tagName || "";
+      const hasBuyNowText = /\\bbuy\\s*now\\b/i.test(text);
+      const isClickableShape = /^(BUTTON|A|INPUT)$/i.test(tag)
+        || /button/i.test(role)
+        || /button|buy|pdp|cart-concern|checkout|action/i.test(className)
+        || typeof element.onclick === "function";
+      return hasBuyNowText && isClickableShape;
+    };
+    const toPublicCandidate = (candidate) => ({
+      index: candidate.index,
+      text: compact(candidate.text).slice(0, 120),
+      tag: candidate.tag,
+      className: compact(candidate.className).slice(0, 160),
+      role: candidate.role,
+      source: candidate.source,
+      disabled: candidate.disabled,
+      target: candidate.target
+    });
+    const availabilitySignalsFor = (bodyText) => {
+      const text = compact(bodyText);
+      const signals = [];
+      for (const match of text.match(/out\\s+of\\s+stock|sold\\s+out|currently\\s+unavailable|temporarily\\s+unavailable|(?:item|product)\\s+(?:is\\s+)?unavailable/gi) || []) {
+        signals.push({ kind: "strong_unavailable_text", text: match.slice(0, 120) });
+      }
+      for (const match of text.match(/not\\s+available/gi) || []) {
+        signals.push({ kind: "generic_unavailable_text", text: match.slice(0, 120) });
+      }
+      return signals;
+    };
+    const scanBuyNowCandidates = () => {
+      const selector = 'button, a, input[type="button"], input[type="submit"], [role="button"], [class*="button" i], [class*="buy" i], [class*="pdp" i]';
+      const seen = new Set();
+      const candidates = [];
+      const elements = Array.from(document.querySelectorAll(selector));
+      for (const element of elements) {
+        const text = textFor(element);
+        const className = classFor(element);
+        if (!isBuyNowCandidate(element, text, className)) continue;
+        const target = visibleRectFor(element);
+        if (!target) continue;
+        const key = [text.toLowerCase(), Math.round(target.x), Math.round(target.y)].join(":");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const disabled = isDisabled(element, text, className);
+        candidates.push({
+          index: candidates.length,
+          element,
+          text,
+          tag: element.tagName || "",
+          className,
+          role: element.getAttribute?.("role") || "",
+          source: /^(BUTTON|A|INPUT)$/i.test(element.tagName || "") ? "native" : "dom",
+          disabled,
+          target
+        });
+      }
+      const availabilitySignals = availabilitySignalsFor(document.body?.innerText || document.body?.textContent || "");
+      for (const candidate of candidates) {
+        if (candidate.disabled) {
+          availabilitySignals.push({ kind: "disabled_buy_now", text: candidate.text || "Buy Now disabled" });
+        }
+      }
+      return { candidates: candidates.slice(0, 12), availabilitySignals };
+    };
+  `;
 }
 
 async function waitForDarazBuyNowCheckoutReady(page: Page, product: DarazSelectedProduct): Promise<DarazCheckoutReadyResult> {

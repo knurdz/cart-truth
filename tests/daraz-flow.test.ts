@@ -598,6 +598,117 @@ describe("Daraz check Buy Now flow", () => {
     expect(result.products[0]?.note).toContain("Buy Now");
   });
 
+  it("does not mark a visible Buy Now product unavailable because generic page text says not available", async () => {
+    const { result } = await checkWithLivePageAndSessions(new FakeDarazPage({
+      onGoto(url, state) {
+        if (url.includes("cart.daraz.lk/cart")) {
+          state.url = url;
+          state.bodyText = "Shopping Cart";
+          return;
+        }
+        if (url === product.url) {
+          state.url = url;
+          state.bodyText = "Sample Daraz Product Rs. 1,000 Delivery not available in some areas Buy Now";
+        }
+      },
+      onClick(label, state) {
+        if (/buy now/i.test(label)) {
+          state.url = "https://checkout.daraz.lk/shipping?buyNow=1";
+          state.bodyText = checkoutText(product.title, "Rs. 1,000", "Rs. 1,345");
+        }
+      },
+      checkoutExtraction: {
+        rows: [{
+          text: "Sample Daraz Product Rs. 1,000 Qty: 1",
+          matchedTitles: ["Sample Daraz Product"],
+          quantity: 1,
+          priceTexts: ["Rs. 1,000"]
+        }]
+      }
+    }));
+
+    expect(result.status).toBe("checked");
+    expect(result.products[0]?.status).toBe("checked");
+    const clickDebug = await readBuyNowClickDebug(result);
+    expect(clickDebug.availabilitySignals).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "generic_unavailable_text" })
+    ]));
+    expect(clickDebug.candidates.length).toBeGreaterThan(0);
+  });
+
+  it("clicks a non-button Daraz Buy Now element from the DOM scan", async () => {
+    const result = await checkWithLivePage(new FakeDarazPage({
+      disableAccessibleBuyNow: true,
+      buyNowCandidates: [{
+        text: "Buy Now",
+        tag: "DIV",
+        className: "pdp-button pdp-button_theme_orange pdp-button_size_xl"
+      }],
+      onGoto(url, state) {
+        if (url.includes("cart.daraz.lk/cart")) {
+          state.url = url;
+          state.bodyText = "Shopping Cart";
+          return;
+        }
+        if (url === product.url) {
+          state.url = url;
+          state.bodyText = "Sample Daraz Product Rs. 1,000 Buy Now";
+        }
+      },
+      onClick(label, state) {
+        if (/buy now/i.test(label)) {
+          state.url = "https://checkout.daraz.lk/shipping?buyNow=1";
+          state.bodyText = checkoutText(product.title, "Rs. 1,000", "Rs. 1,345");
+        }
+      }
+    }));
+
+    expect(result.status).toBe("checked");
+    expect(result.products[0]?.status).toBe("checked");
+  });
+
+  it("marks a disabled Buy Now product unavailable", async () => {
+    const result = await checkWithLivePage(new FakeDarazPage({
+      disableAccessibleBuyNow: true,
+      buyNowCandidates: [{ text: "Buy Now", disabled: true }],
+      onGoto(url, state) {
+        if (url.includes("cart.daraz.lk/cart")) {
+          state.url = url;
+          state.bodyText = "Shopping Cart";
+          return;
+        }
+        if (url === product.url) {
+          state.url = url;
+          state.bodyText = "Sample Daraz Product Rs. 1,000 Buy Now";
+        }
+      }
+    }));
+
+    expect(result.status).toBe("needs_attention");
+    expect(result.products[0]?.status).toBe("unavailable");
+    expect(result.products[0]?.note).toBe("This product is unavailable on Daraz.");
+  });
+
+  it("marks a visible Buy Now that does not open checkout as needs_attention", async () => {
+    const result = await checkWithLivePage(new FakeDarazPage({
+      onGoto(url, state) {
+        if (url.includes("cart.daraz.lk/cart")) {
+          state.url = url;
+          state.bodyText = "Shopping Cart";
+          return;
+        }
+        if (url === product.url) {
+          state.url = url;
+          state.bodyText = "Sample Daraz Product Rs. 1,000 Buy Now";
+        }
+      }
+    }));
+
+    expect(result.status).toBe("needs_attention");
+    expect(result.products[0]?.status).toBe("needs_attention");
+    expect(result.products[0]?.note).toContain("Buy Now was visible");
+  });
+
   it("marks a product needs_attention when Daraz requires a variant before Buy Now", async () => {
     const result = await checkWithLivePage(new FakeDarazPage({
       onGoto(url, state) {
@@ -764,6 +875,18 @@ async function checkWithLivePageAndSessions(page: FakeDarazPage) {
   };
 }
 
+async function readBuyNowClickDebug(result: { evidence?: Array<{ uri: string }> }) {
+  const artifact = result.evidence?.find((item) => item.uri.includes("daraz-buy-now-click-01-item-1.json"));
+  if (!artifact) {
+    throw new Error("Expected Buy Now click debug evidence.");
+  }
+  return JSON.parse(await readFile(artifact.uri, "utf8")) as {
+    candidates: Array<{ text: string; disabled: boolean }>;
+    availabilitySignals: Array<{ kind: string; text: string }>;
+    clickMethod: string;
+  };
+}
+
 function fakeContext(page: FakeDarazPage) {
   return {
     pages: () => [page],
@@ -861,13 +984,25 @@ function restoreEnvValue(key: string, value: string | undefined): void {
 
 type PageState = { url: string; bodyText: string };
 type CheckoutExtractionMock = { rows: Array<{ text: string; matchedTitles: string[]; quantity?: number; priceTexts: string[] }> };
+type FakeBuyNowCandidate = {
+  text?: string;
+  tag?: string;
+  className?: string;
+  role?: string;
+  source?: string;
+  disabled?: boolean;
+  target?: { x: number; y: number; width: number; height: number };
+};
 
 class FakeDarazPage {
   private readonly state: PageState = { url: "about:blank", bodyText: "" };
   closed = false;
   clickedLabels: string[] = [];
   readonly mouse = {
-    click: vi.fn(async () => undefined)
+    click: vi.fn(async () => {
+      this.clickedLabels.push("Buy Now(mouse)");
+      this.options.onClick?.("Buy Now", this.state);
+    })
   };
 
   constructor(private readonly options: {
@@ -875,6 +1010,8 @@ class FakeDarazPage {
     onClick?: (label: string, state: PageState) => void;
     checkoutExtraction?: CheckoutExtractionMock | (() => CheckoutExtractionMock);
     functionEvaluate?: unknown | (() => unknown);
+    buyNowCandidates?: FakeBuyNowCandidate[];
+    disableAccessibleBuyNow?: boolean;
   } = {}) {}
 
   url() {
@@ -923,6 +1060,22 @@ class FakeDarazPage {
     if (this.state.url.includes("checkout.daraz.lk/shipping") && typeof script === "string" && script.includes("priceTexts")) {
       return this.nextMock(this.options.checkoutExtraction ?? { rows: [] });
     }
+    if (typeof script === "string" && script.includes("scanBuyNowCandidates")) {
+      if (script.includes("candidate.element.click")) {
+        const candidates = this.buyNowCandidates();
+        const candidate = candidates.find((item) => !item.disabled);
+        if (!candidate) {
+          return { clicked: false };
+        }
+        this.clickedLabels.push("Buy Now(dom)");
+        this.options.onClick?.("Buy Now", this.state);
+        return { clicked: true, candidate };
+      }
+      return {
+        candidates: this.buyNowCandidates(),
+        availabilitySignals: this.availabilitySignals()
+      };
+    }
     return undefined;
   }
 
@@ -943,7 +1096,7 @@ class FakeDarazPage {
 
   private buttonLocator(label: string | RegExp | undefined) {
     const text = typeof label === "string" ? label : label?.source ?? "";
-    const matches = (/buy now/i.test(text) && /buy now/i.test(this.state.bodyText))
+    const matches = (/buy now/i.test(text) && !this.options.disableAccessibleBuyNow && /buy now/i.test(this.state.bodyText))
       || (/add to cart/i.test(text) && /add to cart/i.test(this.state.bodyText))
       || (/checkout|proceed to checkout/i.test(text) && /checkout|proceed to checkout/i.test(this.state.bodyText));
     return {
@@ -955,5 +1108,37 @@ class FakeDarazPage {
         }
       })
     };
+  }
+
+  private buyNowCandidates() {
+    const configured = this.options.buyNowCandidates ?? (/buy now/i.test(this.state.bodyText) ? [{}] : []);
+    return configured.map((candidate, index) => ({
+      index,
+      text: candidate.text ?? "Buy Now",
+      tag: candidate.tag ?? "DIV",
+      className: candidate.className ?? "pdp-button pdp-button_theme_orange",
+      role: candidate.role ?? "",
+      source: candidate.source ?? "dom",
+      disabled: Boolean(candidate.disabled),
+      target: candidate.target ?? { x: 500 + index, y: 700, width: 160, height: 44 }
+    }));
+  }
+
+  private availabilitySignals() {
+    const signals: Array<{ kind: string; text: string }> = [];
+    const strong = this.state.bodyText.match(/out\s+of\s+stock|sold\s+out|currently\s+unavailable|temporarily\s+unavailable|(?:item|product)\s+(?:is\s+)?unavailable/gi) ?? [];
+    for (const text of strong) {
+      signals.push({ kind: "strong_unavailable_text", text });
+    }
+    const generic = this.state.bodyText.match(/not\s+available/gi) ?? [];
+    for (const text of generic) {
+      signals.push({ kind: "generic_unavailable_text", text });
+    }
+    for (const candidate of this.buyNowCandidates()) {
+      if (candidate.disabled) {
+        signals.push({ kind: "disabled_buy_now", text: candidate.text });
+      }
+    }
+    return signals;
   }
 }
