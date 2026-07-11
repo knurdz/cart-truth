@@ -25,11 +25,18 @@ const {
   readDarazProfileSessionMetadata,
   repairDarazProfileLock
 } = await import("@carttruth/adapters");
-const { LocalRuntime } = await import("../apps/web/src/runtime.js");
+const { LocalRuntime, resolveDarazCheckHeadless } = await import("../apps/web/src/runtime.js");
 
 const tempDirs: string[] = [];
 const childProcesses: ChildProcess[] = [];
 const execFileAsync = promisify(execFile);
+const originalEnv = {
+  CARTTRUTH_BROWSER_MODE: process.env.CARTTRUTH_BROWSER_MODE,
+  CARTTRUTH_DARAZ_CHECK_HEADLESS: process.env.CARTTRUTH_DARAZ_CHECK_HEADLESS,
+  DISPLAY: process.env.DISPLAY,
+  CARTTRUTH_ADMIN_USERNAME: process.env.CARTTRUTH_ADMIN_USERNAME,
+  CARTTRUTH_ADMIN_PASSWORD: process.env.CARTTRUTH_ADMIN_PASSWORD
+};
 
 const product: DarazSelectedProduct = {
   id: "item-1",
@@ -51,6 +58,7 @@ const secondProduct: DarazSelectedProduct = {
 
 afterEach(async () => {
   vi.clearAllMocks();
+  restoreEnv();
   for (const child of childProcesses.splice(0)) {
     child.kill("SIGKILL");
   }
@@ -58,6 +66,14 @@ afterEach(async () => {
 });
 
 describe("Daraz check Buy Now flow", () => {
+  it("resolves Daraz checkout headless mode from VPS and override environment", () => {
+    expect(resolveDarazCheckHeadless({ CARTTRUTH_BROWSER_MODE: "vnc" })).toBe(true);
+    expect(resolveDarazCheckHeadless({})).toBe(true);
+    expect(resolveDarazCheckHeadless({ CARTTRUTH_BROWSER_MODE: "headed", DISPLAY: ":0" })).toBe(false);
+    expect(resolveDarazCheckHeadless({ CARTTRUTH_BROWSER_MODE: "vnc", CARTTRUTH_DARAZ_CHECK_HEADLESS: "false" })).toBe(false);
+    expect(resolveDarazCheckHeadless({ CARTTRUTH_BROWSER_MODE: "headed", DISPLAY: ":0", CARTTRUTH_DARAZ_CHECK_HEADLESS: "true" })).toBe(true);
+  });
+
   it("passes TorchProxies to Daraz search and product lookup browsers", async () => {
     const runsDir = await mkdtemp(join(tmpdir(), "daraz-flow-runs-"));
     const sessionsDir = await mkdtemp(join(tmpdir(), "daraz-flow-sessions-"));
@@ -340,6 +356,61 @@ describe("Daraz check Buy Now flow", () => {
     );
   });
 
+  it("runs runtime-created Daraz checkout browsers headless in VNC without DISPLAY", async () => {
+    const runsDir = await mkdtemp(join(tmpdir(), "daraz-flow-runs-"));
+    const sessionsDir = await mkdtemp(join(tmpdir(), "daraz-flow-sessions-"));
+    const dbDir = await mkdtemp(join(tmpdir(), "daraz-flow-db-"));
+    tempDirs.push(runsDir, sessionsDir, dbDir);
+    process.env.CARTTRUTH_BROWSER_MODE = "vnc";
+    delete process.env.CARTTRUTH_DARAZ_CHECK_HEADLESS;
+    delete process.env.DISPLAY;
+    process.env.CARTTRUTH_ADMIN_USERNAME = "admin";
+    process.env.CARTTRUTH_ADMIN_PASSWORD = "password123";
+    const proxy = testProxyProfile();
+
+    const page = new FakeDarazPage({
+      onGoto(url, state) {
+        if (url.includes("cart.daraz.lk/cart")) {
+          state.url = url;
+          state.bodyText = "Shopping Cart";
+          return;
+        }
+        if (url === product.url) {
+          state.url = url;
+          state.bodyText = "Sample Daraz Product Rs. 1,000 Buy Now";
+        }
+      },
+      onClick(label, state) {
+        if (/buy now/i.test(label)) {
+          state.url = "https://checkout.daraz.lk/shipping?buyNow=1";
+          state.bodyText = checkoutText(product.title, "Rs. 1,000", "Rs. 1,345");
+        }
+      }
+    });
+    playwrightMocks.launchPersistentContext.mockResolvedValue(fakeContext(page));
+    const runtime = new LocalRuntime({
+      runsDir,
+      sessionsDir,
+      sqlitePath: join(dbDir, "carttruth.db"),
+      proxyProfile: proxy
+    });
+    await runtime.bootstrap();
+    const user = runtime.store.findUserByUsername("admin");
+    if (!user) {
+      throw new Error("Expected bootstrap admin user.");
+    }
+    markDarazProfileSessionSaved(join(sessionsDir, "users", user.id), undefined, proxySummary(proxy));
+
+    const result = await runtime.checkDaraz(user.id, { products: [product] });
+    await runtime.close();
+
+    expect(result.status).toBe("checked");
+    expect(playwrightMocks.launchPersistentContext).toHaveBeenCalledWith(
+      dirname(darazProfileReadyPath(join(sessionsDir, "users", user.id))),
+      expect.objectContaining({ headless: true })
+    );
+  });
+
   it("checks one product through Buy Now without touching cart checkout controls", async () => {
     const runsDir = await mkdtemp(join(tmpdir(), "daraz-flow-runs-"));
     const sessionsDir = await mkdtemp(join(tmpdir(), "daraz-flow-sessions-"));
@@ -553,6 +624,23 @@ describe("Daraz check Buy Now flow", () => {
     expect(readDarazProfileSessionMetadata(sessionsDir).status).toBe("needs_login");
   });
 
+  it("returns a concise needs_attention message when headed checkout cannot start without XServer", async () => {
+    const { service } = await serviceWithReadyProfile();
+    playwrightMocks.launchPersistentContext.mockRejectedValue(new Error([
+      "browserType.launchPersistentContext: Target page, context or browser has been closed",
+      "Looks like you launched a headed browser without having a XServer running.",
+      "Missing X server or $DISPLAY",
+      "Browser logs: very long chromium dump"
+    ].join("\n")));
+
+    const result = await service.check({ products: [product] });
+
+    expect(result.status).toBe("needs_attention");
+    expect(result.message).toBe("Daraz checkout browser could not start on the server. Automated checks must run headless or under Xvfb.");
+    expect(result.products[0]?.note).toBe(result.message);
+    expect(result.products[0]?.note).not.toContain("Browser logs");
+  });
+
   it("reports captcha after Buy Now as blocked", async () => {
     const { result, sessionsDir } = await checkWithLivePageAndSessions(new FakeDarazPage({
       onGoto(url, state) {
@@ -693,6 +781,22 @@ async function waitForProcessTable(text: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Process table did not include ${text}`);
+}
+
+function restoreEnv(): void {
+  restoreEnvValue("CARTTRUTH_BROWSER_MODE", originalEnv.CARTTRUTH_BROWSER_MODE);
+  restoreEnvValue("CARTTRUTH_DARAZ_CHECK_HEADLESS", originalEnv.CARTTRUTH_DARAZ_CHECK_HEADLESS);
+  restoreEnvValue("DISPLAY", originalEnv.DISPLAY);
+  restoreEnvValue("CARTTRUTH_ADMIN_USERNAME", originalEnv.CARTTRUTH_ADMIN_USERNAME);
+  restoreEnvValue("CARTTRUTH_ADMIN_PASSWORD", originalEnv.CARTTRUTH_ADMIN_PASSWORD);
+}
+
+function restoreEnvValue(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
 }
 
 type PageState = { url: string; bodyText: string };

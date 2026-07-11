@@ -65,9 +65,11 @@ export class LocalRuntime {
   readonly logger: Logger;
   private readonly proxyProfile: ProxyProfile | undefined;
   private readonly sessionCapture: DarazSessionCaptureManager;
+  private readonly darazCheckHeadless: boolean;
   private readonly darazUserLocks = new Map<string, Promise<void>>();
 
   constructor(private readonly options: RuntimeOptions = {}) {
+    const mode = browserMode();
     this.runsDir = resolve(options.runsDir ?? process.env.CARTTRUTH_RUNS_DIR ?? "runs");
     this.sessionsDir = resolve(options.sessionsDir ?? process.env.CARTTRUTH_SESSIONS_DIR ?? ".carttruth/sessions");
     this.evidenceStore = new LocalEvidenceStore(this.runsDir);
@@ -75,11 +77,14 @@ export class LocalRuntime {
     this.logger = options.logger ?? createLogger({ base: { service: "carttruth-web" } });
     this.proxyProfile = options.proxyProfile ?? loadProxyProfileFromEnv(loadRuntimeEnv());
     this.sessionCapture = options.sessionCapture ?? createDarazSessionCaptureManager(this.proxyProfile, this.logger);
+    this.darazCheckHeadless = resolveDarazCheckHeadless(process.env, mode);
     this.logger.info("runtime initialized", {
       runsDir: this.runsDir,
       sessionsDir: this.sessionsDir,
       proxy: proxySummary(this.proxyProfile),
-      browserMode: browserMode()
+      browserMode: mode,
+      darazCheckHeadless: this.darazCheckHeadless,
+      displayPresent: Boolean(process.env.DISPLAY)
     });
   }
 
@@ -343,6 +348,7 @@ export class LocalRuntime {
       evidenceStore: this.evidenceStore,
       sessionsDir: this.sessionsDirForUser(userId),
       ...(this.proxyProfile ? { proxyProfile: this.proxyProfile } : {}),
+      headless: this.darazCheckHeadless,
       logger: this.logger,
       liveContext: () => this.sessionCapture.activeContext(userId)
     });
@@ -756,6 +762,31 @@ function createDarazSessionCaptureManager(proxyProfile: ProxyProfile | undefined
 
 function browserMode(): "headed" | "vnc" {
   return process.env.CARTTRUTH_BROWSER_MODE === "vnc" ? "vnc" : "headed";
+}
+
+export function resolveDarazCheckHeadless(
+  env: Record<string, string | undefined> = process.env,
+  mode: "headed" | "vnc" = env.CARTTRUTH_BROWSER_MODE === "vnc" ? "vnc" : "headed"
+): boolean {
+  const configured = parseBooleanEnv(env.CARTTRUTH_DARAZ_CHECK_HEADLESS);
+  if (configured !== undefined) {
+    return configured;
+  }
+  return mode === "vnc" || !env.DISPLAY;
+}
+
+function parseBooleanEnv(value: string | undefined): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return undefined;
 }
 
 async function findFreePort(): Promise<number> {

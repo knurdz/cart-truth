@@ -44,6 +44,8 @@ Set `CARTTRUTH_ADMIN_USERNAME` and `CARTTRUTH_ADMIN_PASSWORD` in `.env.local` be
 
 The checker uses Daraz Buy Now checkout extraction and is designed to stop before purchase. It must not submit orders, pay, confirm purchases, or save payment details.
 
+On VPS/Docker, user login and OTP/captcha handling use the VNC browser, while automated Buy Now final-price checks run headless by default. Set `CARTTRUTH_DARAZ_CHECK_HEADLESS=false` only for local headed debugging with a real display or Xvfb.
+
 ## Required Environment
 
 Create `.env` from `.env.example` on the VPS. Required production values:
@@ -53,6 +55,7 @@ CARTTRUTH_DOMAIN=carttruth.knurdz.org
 CARTTRUTH_PUBLIC_URL=https://carttruth.knurdz.org
 CARTTRUTH_LOG_LEVEL=debug
 CARTTRUTH_BROWSER_MODE=vnc
+CARTTRUTH_DARAZ_CHECK_HEADLESS=true
 CARTTRUTH_BROWSER_IDLE_TIMEOUT_MS=900000
 CARTTRUTH_ADMIN_USERNAME=admin
 CARTTRUTH_ADMIN_PASSWORD=temporary-strong-password

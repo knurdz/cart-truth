@@ -329,14 +329,24 @@ export class DarazService {
         }));
       }
       const isProfileLock = error instanceof DarazProfileInUseError;
-      const message = error instanceof Error ? error.message : "Unable to check Daraz price.";
+      const rawMessage = error instanceof Error ? error.message : "Unable to check Daraz price.";
+      const isDisplayLaunchError = isMissingXServerError(error);
+      if (isDisplayLaunchError) {
+        this.options.logger?.error("daraz_checkout_browser_start_failed", {
+          reason: "missing_x_server",
+          error: rawMessage
+        });
+      }
+      const message = isDisplayLaunchError
+        ? "Daraz checkout browser could not start on the server. Automated checks must run headless or under Xvfb."
+        : rawMessage;
       return await finishDarazResult(
         this.options.evidenceStore,
         runId,
         startedAt,
         evidence,
         request.products.map((product) => productToPrice(product, "needs_attention", message)),
-        isProfileLock ? "needs_attention" : "error",
+        isProfileLock || isDisplayLaunchError ? "needs_attention" : "error",
         message
       );
     } finally {
@@ -347,6 +357,11 @@ export class DarazService {
       }
     }
   }
+}
+
+function isMissingXServerError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /headed browser without having a XServer|Missing X server|\$DISPLAY|platform failed to initialize/i.test(message);
 }
 
 async function resolveLiveContext(

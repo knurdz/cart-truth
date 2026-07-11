@@ -26,5 +26,15 @@ describe("deployment config", () => {
     expect(readme).toContain("https://carttruth.knurdz.org");
     expect(readme).toContain("docker compose logs -f carttruth");
     expect(readme).toContain("CARTTRUTH_LOG_LEVEL=debug");
+    expect(readme).toContain("CARTTRUTH_DARAZ_CHECK_HEADLESS=true");
+  });
+
+  it("defaults VPS checkout automation to headless", async () => {
+    const compose = await readFile("docker-compose.yml", "utf8");
+    const envExample = await readFile(".env.example", "utf8");
+    const installScript = await readFile("scripts/install.sh", "utf8");
+    expect(compose).toContain("CARTTRUTH_DARAZ_CHECK_HEADLESS");
+    expect(envExample).toContain("CARTTRUTH_DARAZ_CHECK_HEADLESS=true");
+    expect(installScript).toContain("CARTTRUTH_DARAZ_CHECK_HEADLESS=true");
   });
 });
