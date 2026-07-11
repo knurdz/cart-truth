@@ -86,7 +86,7 @@ export async function launchDarazPersistentContext(
     const repair = await repairDarazProfileLock(profilePath, diagnostics);
     assertProfileRepairAllowsLaunch(repair);
 
-    if (!repair.repaired) {
+    if (!repair.repaired && repair.reason !== "no_lock") {
       throw new DarazProfileInUseError(
         "Could not repair the Daraz browser profile lock automatically. Restart the CartTruth container and try again.",
         repair
@@ -97,10 +97,22 @@ export async function launchDarazPersistentContext(
       event: "daraz_profile_launch_retry",
       profileId: repair.profileId,
       ...diagnosticFields(diagnostics),
-      removedFiles: repair.removedFiles
+      removedFiles: repair.removedFiles,
+      reason: repair.repaired ? "stale_lock_removed" : "no_lock_after_launch_failure"
     });
 
-    return await chromium.launchPersistentContext(profilePath, options);
+    await delay(500);
+    try {
+      return await chromium.launchPersistentContext(profilePath, options);
+    } catch (retryError) {
+      if (isChromiumProfileInUseError(retryError)) {
+        throw new DarazProfileInUseError(
+          "Daraz browser profile is still locked after automatic repair. Stop any open Daraz browser and try again.",
+          repair
+        );
+      }
+      throw retryError;
+    }
   }
 }
 
@@ -269,4 +281,8 @@ function diagnosticFields(diagnostics: DarazProfileLaunchDiagnostics): Pick<Dara
 
 function profileId(profilePath: string): string {
   return createHash("sha256").update(resolve(profilePath)).digest("hex").slice(0, 16);
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }

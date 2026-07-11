@@ -322,6 +322,37 @@ describe("Daraz check Buy Now flow", () => {
     expect(existsSync(join(profilePath, "SingletonLock"))).toBe(false);
   });
 
+  it("retries when Chromium reports a profile lock but no lock files remain", async () => {
+    const { service } = await serviceWithReadyProfile();
+    const page = new FakeDarazPage({
+      onGoto(url, state) {
+        if (url.includes("cart.daraz.lk/cart")) {
+          state.url = url;
+          state.bodyText = "Shopping Cart";
+          return;
+        }
+        if (url === product.url) {
+          state.url = url;
+          state.bodyText = "Sample Daraz Product Rs. 1,000 Buy Now";
+        }
+      },
+      onClick(label, state) {
+        if (/buy now/i.test(label)) {
+          state.url = "https://checkout.daraz.lk/shipping?buyNow=1";
+          state.bodyText = checkoutText(product.title, "Rs. 1,000", "Rs. 1,345");
+        }
+      }
+    });
+    playwrightMocks.launchPersistentContext
+      .mockRejectedValueOnce(new Error("browserType.launchPersistentContext: profile appears to be in use by another Chromium process (exit code 21)"))
+      .mockResolvedValueOnce(fakeContext(page));
+
+    const result = await service.check({ products: [product] });
+
+    expect(result.status).toBe("checked");
+    expect(playwrightMocks.launchPersistentContext).toHaveBeenCalledTimes(2);
+  });
+
   it("does not remove Chromium profile locks while a matching process is still alive", async () => {
     const sessionsDir = await mkdtemp(join(tmpdir(), "daraz-flow-sessions-"));
     tempDirs.push(sessionsDir);
