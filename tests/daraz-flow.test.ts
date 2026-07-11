@@ -25,7 +25,7 @@ const {
   readDarazProfileSessionMetadata,
   repairDarazProfileLock
 } = await import("@carttruth/adapters");
-const { LocalRuntime, resolveDarazCheckHeadless } = await import("../apps/web/src/runtime.js");
+const { LocalRuntime, resolveDarazCheckHeadless, tryDarazAutoLogin } = await import("../apps/web/src/runtime.js");
 
 const tempDirs: string[] = [];
 const childProcesses: ChildProcess[] = [];
@@ -72,6 +72,35 @@ describe("Daraz check Buy Now flow", () => {
     expect(resolveDarazCheckHeadless({ CARTTRUTH_BROWSER_MODE: "headed", DISPLAY: ":0" })).toBe(false);
     expect(resolveDarazCheckHeadless({ CARTTRUTH_BROWSER_MODE: "vnc", CARTTRUTH_DARAZ_CHECK_HEADLESS: "false" })).toBe(false);
     expect(resolveDarazCheckHeadless({ CARTTRUTH_BROWSER_MODE: "headed", DISPLAY: ":0", CARTTRUTH_DARAZ_CHECK_HEADLESS: "true" })).toBe(true);
+  });
+
+  it("returns auto-login diagnostics when Daraz login controls are missing", async () => {
+    const missingControl = {
+      waitFor: vi.fn(async () => {
+        throw new Error("control missing");
+      }),
+      fill: vi.fn(),
+      click: vi.fn()
+    };
+    const page = {
+      locator: vi.fn(() => ({ first: () => missingControl })),
+      getByRole: vi.fn(() => ({ first: () => missingControl })),
+      waitForLoadState: vi.fn()
+    };
+
+    const result = await tryDarazAutoLogin(page as never, {
+      username: "buyer@example.com",
+      password: "password"
+    });
+
+    expect(result).toEqual({
+      usernameFound: false,
+      passwordFound: false,
+      loginButtonFound: false,
+      submitted: false
+    });
+    expect(missingControl.fill).not.toHaveBeenCalled();
+    expect(missingControl.click).not.toHaveBeenCalled();
   });
 
   it("passes TorchProxies to Daraz search and product lookup browsers", async () => {

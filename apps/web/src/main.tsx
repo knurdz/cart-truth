@@ -81,6 +81,13 @@ type DarazCredentialStatus = {
   updatedAt?: string;
 };
 
+type DarazSessionActionResponse = {
+  status: "needs_user_action";
+  message?: string;
+  browserUrl?: string;
+  session?: DarazSession & { browserUrl?: string };
+};
+
 function App() {
   const [user, setUser] = useState<AppUser | undefined>();
   const [authChecked, setAuthChecked] = useState(false);
@@ -304,6 +311,7 @@ function UserPanel() {
     const observed = parseObservedPrice(link)?.minorUnits ?? 0;
     return total + observed;
   }, 0), [links]);
+  const hasSavedCredentialsForExpiredSession = credentials.saved && darazSession.status !== "saved";
 
   async function refresh() {
     const [session, saved, runs, credentialStatus] = await Promise.all([
@@ -335,18 +343,9 @@ function UserPanel() {
     setAddingLink(true);
     setMessage("Reading product page price...");
     try {
-      const response = await postJson<{
-        link?: SavedLink;
-        status?: string;
-        message?: string;
-        browserUrl?: string;
-        session?: DarazSession & { browserUrl?: string };
-      }>("/api/links", { url: productUrl.trim() });
-      if (response.status === "needs_user_action") {
-        setBrowserUrl(response.browserUrl ?? response.session?.browserUrl ?? "");
-        setCaptureId(response.session?.captureId ?? "");
-        setDarazSession(response.session ?? darazSession);
-        setMessage(response.message ?? "Daraz needs verification. Open the remote browser, finish verification, then save session.");
+      const response = await postJson<({ link?: SavedLink; message?: string } | DarazSessionActionResponse)>("/api/links", { url: productUrl.trim() });
+      if (isDarazSessionActionResponse(response)) {
+        await handleDarazSessionAction(response);
         await refresh().catch(() => undefined);
         return;
       }
@@ -354,7 +353,12 @@ function UserPanel() {
         setLinks((items) => [response.link!, ...items.filter((item) => item.id !== response.link!.id)]);
       }
       setMessage("Checking final checkout price...");
-      const finalPrice = await postJson<DarazCheckResult>("/api/links/check", { linkIds: response.link ? [response.link.id] : undefined });
+      const finalPrice = await postJson<DarazCheckResult | DarazSessionActionResponse>("/api/links/check", { linkIds: response.link ? [response.link.id] : undefined });
+      if (isDarazSessionActionResponse(finalPrice)) {
+        await handleDarazSessionAction(finalPrice);
+        await refresh().catch(() => undefined);
+        return;
+      }
       setLatest(finalPrice);
       setProductUrl("");
       setMessage(finalPrice.message ?? "Product page price and final checkout price updated.");
@@ -438,9 +442,14 @@ function UserPanel() {
       return;
     }
     setChecking(true);
-    setMessage("Checking saved links...");
+    setMessage(hasSavedCredentialsForExpiredSession ? "Reconnecting to Daraz..." : "Checking saved links...");
     try {
-      const result = await postJson<DarazCheckResult>("/api/links/check", {});
+      const result = await postJson<DarazCheckResult | DarazSessionActionResponse>("/api/links/check", {});
+      if (isDarazSessionActionResponse(result)) {
+        await handleDarazSessionAction(result);
+        await refresh().catch(() => undefined);
+        return;
+      }
       setLatest(result);
       setMessage(result.message ?? "Price check finished.");
       await refresh();
@@ -449,6 +458,13 @@ function UserPanel() {
     } finally {
       setChecking(false);
     }
+  }
+
+  async function handleDarazSessionAction(response: DarazSessionActionResponse) {
+    setBrowserUrl(response.browserUrl ?? response.session?.browserUrl ?? "");
+    setCaptureId(response.session?.captureId ?? "");
+    setDarazSession(response.session ?? darazSession);
+    setMessage(response.message ?? "Daraz needs verification. Open the remote browser, finish it, then save session.");
   }
 
   return (
@@ -482,7 +498,7 @@ function UserPanel() {
         <aside className="cart-box">
           <h2>Your Daraz session</h2>
           <p className={`session-state ${sessionClassName(darazSession.status)}`}>{sessionLabel(darazSession.status)}</p>
-          <p>{darazSession.live ? "Your server-side Daraz browser is active." : "Connect your Daraz account before checking checkout totals."}</p>
+          <p>{sessionHelpText(darazSession, credentials)}</p>
           <div className="button-row">
             <button type="button" disabled={Boolean(captureId)} onClick={() => void startDarazLogin()}>
               {captureId ? "Browser active" : "Open Daraz browser"}
@@ -683,6 +699,20 @@ function sessionLabel(status: DarazSessionStatus) {
 
 function sessionClassName(status: DarazSessionStatus) {
   return status === "saved" ? "saved" : "required";
+}
+
+function sessionHelpText(session: DarazSession, credentials: DarazCredentialStatus) {
+  if (session.live) {
+    return "Your server-side Daraz browser is active.";
+  }
+  if (credentials.saved && session.status !== "saved") {
+    return "Auto-login credentials saved. CartTruth will try to reconnect before checking.";
+  }
+  return "Connect your Daraz account before checking checkout totals.";
+}
+
+function isDarazSessionActionResponse(value: unknown): value is DarazSessionActionResponse {
+  return Boolean(value && typeof value === "object" && (value as { status?: unknown }).status === "needs_user_action");
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {

@@ -13,6 +13,8 @@ describe("Daraz dashboard source", () => {
     expect(source).toContain("Reading product page price");
     expect(source).toContain("Checking final checkout price");
     expect(source).toContain("Add your Daraz email/phone and password before saving products.");
+    expect(source).toContain("Auto-login credentials saved. CartTruth will try to reconnect before checking.");
+    expect(source).toContain("Reconnecting to Daraz");
     expect(source).toContain("Qty 1");
     expect(source).toContain("Check saved links");
     expect(source).toContain("Order breakdown");

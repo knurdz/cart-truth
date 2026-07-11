@@ -131,6 +131,7 @@ export class LocalRuntime {
     if (links.length === 0) {
       throw new Error("Add at least one saved Daraz link first.");
     }
+    await this.ensureDarazSessionForUser(userId);
     return this.checkDaraz(userId, {
       products: links.map((link) => ({ ...savedLinkToProduct(link), quantity: 1 }))
     });
@@ -141,6 +142,7 @@ export class LocalRuntime {
     if (!link) {
       throw new Error("Saved Daraz link not found.");
     }
+    await this.ensureDarazSessionForUser(userId);
     return this.checkDaraz(userId, {
       products: [{ ...savedLinkToProduct(link), quantity: 1 }]
     });
@@ -172,7 +174,7 @@ export class LocalRuntime {
     const credentials = this.store.getDarazCredentials(userId);
     if (!credentials) {
       this.logger.warn("daraz credentials required", { userId });
-      throw new Error("Add your Daraz email/phone and password before saving products.");
+      throw new Error("Save your Daraz email/phone and password, or open the remote Daraz browser and save a session before checking final prices.");
     }
 
     this.logger.info("auto_login_started", { userId, username: credentials.username });
@@ -415,6 +417,10 @@ class PlaywrightDarazSessionCaptureManager implements DarazSessionCaptureManager
   async start(userId: string, profilePath: string, credentials?: DarazLoginCredentials) {
     const existing = this.activeCapture(userId);
     if (existing) {
+      const capture = this.captures.get(existing.captureId);
+      if (capture && credentials) {
+        await this.tryStoredCredentialLogin(userId, capture.context, credentials, existing.captureId);
+      }
       this.logger.debug("reusing active headed daraz browser", { userId, captureId: existing.captureId });
       return {
         captureId: existing.captureId,
@@ -439,7 +445,7 @@ class PlaywrightDarazSessionCaptureManager implements DarazSessionCaptureManager
     const page = context.pages()[0] ?? await context.newPage();
     await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
     if (credentials) {
-      await tryDarazAutoLogin(page, credentials).catch(() => undefined);
+      await this.tryStoredCredentialLogin(userId, context, credentials, captureId);
     }
     this.captures.set(captureId, { userId, context, profilePath });
     this.logger.info("headed daraz browser opened", { userId, captureId, profilePath });
@@ -528,6 +534,17 @@ class PlaywrightDarazSessionCaptureManager implements DarazSessionCaptureManager
     this.logger.info("all headed daraz browsers closed", { count: this.captures.size });
     this.captures.clear();
   }
+
+  protected async tryStoredCredentialLogin(userId: string, context: BrowserContext, credentials: DarazLoginCredentials, captureId: string): Promise<void> {
+    const page = context.pages()[0] ?? await context.newPage();
+    const result = await tryDarazAutoLogin(page, credentials);
+    const meta = { userId, captureId, ...result };
+    if (result.submitted) {
+      this.logger.info("daraz_auto_login_submitted", meta);
+      return;
+    }
+    this.logger.warn("daraz_auto_login_not_submitted", meta);
+  }
 }
 
 class VncDarazSessionCaptureManager extends PlaywrightDarazSessionCaptureManager {
@@ -552,6 +569,9 @@ class VncDarazSessionCaptureManager extends PlaywrightDarazSessionCaptureManager
       const capture = this.vncCaptures.get(existing.captureId);
       if (capture) {
         capture.expiresAt = Date.now() + this.idleTimeoutMs;
+        if (credentials) {
+          await this.tryStoredCredentialLogin(userId, capture.context, credentials, capture.captureId);
+        }
         return {
           captureId: capture.captureId,
           loginUrl: "https://member.daraz.lk/user/login",
@@ -592,7 +612,7 @@ class VncDarazSessionCaptureManager extends PlaywrightDarazSessionCaptureManager
       const loginUrl = "https://member.daraz.lk/user/login";
       await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
       if (credentials) {
-        await tryDarazAutoLogin(page, credentials).catch(() => undefined);
+        await this.tryStoredCredentialLogin(userId, context, credentials, captureId);
       }
 
       const capture = {
@@ -811,14 +831,51 @@ async function delay(ms: number): Promise<void> {
   await new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 
-async function tryDarazAutoLogin(page: Page, credentials: DarazLoginCredentials): Promise<void> {
-  const userInput = page.locator("input[type='text'], input[type='email'], input[name*='phone' i], input[name*='email' i]").first();
-  const passwordInput = page.locator("input[type='password']").first();
-  await userInput.fill(credentials.username, { timeout: 5000 });
-  await passwordInput.fill(credentials.password, { timeout: 5000 });
-  const loginButton = page.getByRole("button", { name: /login|sign in/i }).first();
-  await loginButton.click({ timeout: 5000 });
-  await page.waitForLoadState("domcontentloaded", { timeout: 10000 }).catch(() => undefined);
+export type DarazAutoLoginAttempt = {
+  usernameFound: boolean;
+  passwordFound: boolean;
+  loginButtonFound: boolean;
+  submitted: boolean;
+  error?: string;
+};
+
+export async function tryDarazAutoLogin(page: Page, credentials: DarazLoginCredentials): Promise<DarazAutoLoginAttempt> {
+  const result: DarazAutoLoginAttempt = {
+    usernameFound: false,
+    passwordFound: false,
+    loginButtonFound: false,
+    submitted: false
+  };
+  try {
+    const userInput = page.locator("input[type='text'], input[type='email'], input[name*='phone' i], input[name*='email' i]");
+    const passwordInput = page.locator("input[type='password']");
+    result.usernameFound = await locatorExists(userInput);
+    result.passwordFound = await locatorExists(passwordInput);
+    if (!result.usernameFound || !result.passwordFound) {
+      return result;
+    }
+    await userInput.first().fill(credentials.username, { timeout: 5000 });
+    await passwordInput.first().fill(credentials.password, { timeout: 5000 });
+
+    const loginButton = page.getByRole("button", { name: /login|sign in/i });
+    result.loginButtonFound = await locatorExists(loginButton);
+    if (!result.loginButtonFound) {
+      return result;
+    }
+    await loginButton.first().click({ timeout: 5000 });
+    result.submitted = true;
+    await page.waitForLoadState("domcontentloaded", { timeout: 10000 }).catch(() => undefined);
+    return result;
+  } catch (error) {
+    return {
+      ...result,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function locatorExists(locator: ReturnType<Page["locator"]>): Promise<boolean> {
+  return await locator.first().waitFor({ state: "visible", timeout: 5000 }).then(() => true).catch(() => false);
 }
 
 function loadRuntimeEnv(): Record<string, string | undefined> {

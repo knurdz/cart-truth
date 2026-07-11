@@ -15,6 +15,7 @@ let runsDir: string;
 let sessionsDir: string;
 let sqlitePath: string;
 let runtime: LocalRuntime;
+let sessionCapture: FakeDarazSessionCapture;
 let cookie = "";
 
 const fakeSearchResult: DarazSearchResult = {
@@ -30,6 +31,7 @@ beforeEach(async () => {
   sessionsDir = await mkdtemp(join(tmpdir(), "daraz-api-sessions-"));
   const dbDir = await mkdtemp(join(tmpdir(), "daraz-api-db-"));
   sqlitePath = join(dbDir, "carttruth.db");
+  sessionCapture = new FakeDarazSessionCapture();
   runtime = new LocalRuntime({
     runsDir,
     sessionsDir,
@@ -69,7 +71,7 @@ beforeEach(async () => {
         } satisfies DarazCheckResult;
       }
     },
-    sessionCapture: new FakeDarazSessionCapture()
+    sessionCapture
   });
   process.env.CARTTRUTH_ADMIN_USERNAME = "admin";
   process.env.CARTTRUTH_ADMIN_PASSWORD = "password123";
@@ -149,7 +151,19 @@ describe("Daraz API", () => {
 
   it("requires Daraz credentials or a saved session before saving product links", async () => {
     const response = await post("/api/links", { url: "https://www.daraz.lk/products/sample-i1-s1.html" });
-    expect(response.error).toBe("Add your Daraz email/phone and password before saving products.");
+    expect(response.error).toBe("Save your Daraz email/phone and password, or open the remote Daraz browser and save a session before checking final prices.");
+  });
+
+  it("requires Daraz credentials or a saved session before checking saved links", async () => {
+    const user = runtime.store.findUserByUsername("admin");
+    if (!user) {
+      throw new Error("Expected bootstrap admin user.");
+    }
+    runtime.store.upsertSavedLink(user.id, fakeSearchResult);
+
+    const response = await post("/api/links/check", {});
+
+    expect(response.error).toBe("Save your Daraz email/phone and password, or open the remote Daraz browser and save a session before checking final prices.");
   });
 
   it("saves a product link with credentials, then checks that one link", async () => {
@@ -168,6 +182,44 @@ describe("Daraz API", () => {
     expect(checked.status).toBe("checked");
     expect(checked.products).toHaveLength(1);
     expect(checked.products[0].url).toBe(fakeSearchResult.url);
+  });
+
+  it("uses saved Daraz credentials to reconnect before checking saved links", async () => {
+    const user = runtime.store.findUserByUsername("admin");
+    if (!user) {
+      throw new Error("Expected bootstrap admin user.");
+    }
+    runtime.store.upsertSavedLink(user.id, fakeSearchResult);
+    await post("/api/daraz/credentials", {
+      username: "buyer@example.com",
+      password: "daraz-password"
+    });
+
+    const checked = await post("/api/links/check", {});
+
+    expect(checked.status).toBe("checked");
+    expect(sessionCapture.starts).toBe(1);
+    expect(sessionCapture.saves).toBe(1);
+  });
+
+  it("returns needs_user_action when auto-login needs Daraz verification during saved-link check", async () => {
+    const user = runtime.store.findUserByUsername("admin");
+    if (!user) {
+      throw new Error("Expected bootstrap admin user.");
+    }
+    runtime.store.upsertSavedLink(user.id, fakeSearchResult);
+    await post("/api/daraz/credentials", {
+      username: "buyer@example.com",
+      password: "daraz-password"
+    });
+    sessionCapture.saveError = new Error("captcha required before login can continue");
+
+    const response = await post("/api/links/check", {});
+
+    expect(response.status).toBe("needs_user_action");
+    expect(response.message).toContain("Daraz needs OTP, captcha, or verification");
+    expect(response.browserUrl).toBe("/vnc/fake-token/vnc.html");
+    expect(response.session.captureId).toBe("fake-daraz-capture");
   });
 
   it("lists and reads Daraz runs", async () => {
@@ -221,7 +273,12 @@ async function login(): Promise<string> {
 }
 
 class FakeDarazSessionCapture implements DarazSessionCaptureManager {
+  starts = 0;
+  saves = 0;
+  saveError: Error | undefined;
+
   async start(_userId: string, profilePath: string) {
+    this.starts += 1;
     return {
       captureId: "fake-daraz-capture",
       loginUrl: "https://member.daraz.lk/user/login",
@@ -232,6 +289,10 @@ class FakeDarazSessionCapture implements DarazSessionCaptureManager {
   }
 
   async save(_userId: string, captureId: string) {
+    this.saves += 1;
+    if (this.saveError) {
+      throw this.saveError;
+    }
     return {
       captureId,
       profilePath: "/tmp/daraz-profile",
