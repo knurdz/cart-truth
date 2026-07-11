@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { rm, lstat, readFile } from "node:fs/promises";
+import { rm, lstat, readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import { chromium, type BrowserContext } from "playwright";
@@ -11,7 +11,12 @@ const CHROMIUM_SINGLETON_FILES = ["SingletonLock", "SingletonSocket", "Singleton
 
 type LaunchOptions = Parameters<typeof chromium.launchPersistentContext>[1];
 type LockFileKind = "file" | "directory" | "symlink" | "socket" | "fifo" | "character_device" | "block_device" | "unknown";
-type CleanupAction = { action: "removed_lock_file" | "killed_process" | "kill_failed"; target: string; pid?: number; error?: string };
+type CleanupAction = {
+  action: "removed_lock_file" | "killed_process" | "kill_failed" | "process_inspection_failed_allowed_cleanup";
+  target: string;
+  pid?: number;
+  error?: string;
+};
 type LockOwner = { pid?: number; host?: string };
 type ProcessInfo = { pid: number; command: string; rawCommand: string };
 
@@ -176,7 +181,8 @@ export async function repairDarazProfileLock(
     ...(parsedLockOwner ? { parsedLockOwner } : {})
   });
 
-  if (!processInspection.inspected) {
+  const allowUnverifiedSingletonCleanup = diagnostics.allowOrphanProcessCleanup || diagnostics.forceSingletonCleanup;
+  if (!processInspection.inspected && !allowUnverifiedSingletonCleanup) {
     return {
       profileId: id,
       lockFiles: lockFiles.map((lockFile) => basename(lockFile)),
@@ -191,9 +197,16 @@ export async function repairDarazProfileLock(
       error: processInspection.error
     };
   }
+  if (!processInspection.inspected) {
+    cleanupActions.push({
+      action: "process_inspection_failed_allowed_cleanup",
+      target: "process_inspection",
+      error: processInspection.error
+    });
+  }
 
   let activeProcesses: Array<{ pid: number; command: string }> = [];
-  if (processInspection.processes.length > 0) {
+  if (processInspection.inspected && processInspection.processes.length > 0) {
     activeProcesses = processInspection.processes.map((processInfo) => ({
       pid: processInfo.pid,
       command: processInfo.command
@@ -265,15 +278,16 @@ export async function repairDarazProfileLock(
     }).catch(() => undefined);
   }
 
-    emitProfileLockEvent(diagnostics, {
-      event: "daraz_profile_lock_stale_cleanup",
-      profileId: id,
-      ...diagnosticFields(diagnostics),
-      lockFileStats,
-      removedFiles,
-      ...(parsedLockOwner ? { parsedLockOwner } : {}),
-      cleanupActions
-    });
+  emitProfileLockEvent(diagnostics, {
+    event: "daraz_profile_lock_stale_cleanup",
+    profileId: id,
+    ...diagnosticFields(diagnostics),
+    lockFileStats,
+    removedFiles,
+    ...(parsedLockOwner ? { parsedLockOwner } : {}),
+    cleanupActions,
+    ...(!processInspection.inspected ? { error: processInspection.error } : {})
+  });
 
   return {
     profileId: id,
@@ -283,9 +297,10 @@ export async function repairDarazProfileLock(
     activeProcesses,
     ...(parsedLockOwner ? { parsedLockOwner } : {}),
     cleanupActions,
-    inspectedProcesses: true,
+    inspectedProcesses: processInspection.inspected,
     repaired: removedFiles.length > 0 || cleanupActions.some((action) => action.action === "killed_process"),
-    reason: "stale_lock_removed"
+    reason: "stale_lock_removed",
+    ...(!processInspection.inspected ? { error: processInspection.error } : {})
   };
 }
 
@@ -313,34 +328,84 @@ async function findProcessesUsingProfile(profilePath: string, parsedLockOwner?: 
   | { inspected: true; processes: ProcessInfo[] }
   | { inspected: false; error: string }
 > {
+  const errors: string[] = [];
+  const processSources: Array<{ pid: number; rawCommand: string }> = [];
+  let inspectedAnySource = false;
+
   try {
-    const { stdout } = await execFileAsync("ps", ["-eo", "pid=,args="], { maxBuffer: 1024 * 1024 });
-    const psProcesses = stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .map((line) => {
-        const match = line.match(/^(\d+)\s+([\s\S]+)$/);
-        if (!match?.[1] || !match[2]) {
-          return undefined;
-        }
-        return { pid: Number(match[1]), command: match[2] };
-      })
-      .filter((processInfo): processInfo is { pid: number; command: string } => Boolean(processInfo))
-      .filter((processInfo) => processInfo.pid !== process.pid)
-      .filter((processInfo) => processInfo.command.includes(profilePath));
-    const ownerProcess = parsedLockOwner?.pid ? await readProcProcessInfo(parsedLockOwner.pid).catch(() => undefined) : undefined;
-    const processes = dedupeProcesses([
-      ...psProcesses.map((processInfo) => ({ pid: processInfo.pid, rawCommand: processInfo.command })),
-      ...(ownerProcess && ownerProcess.rawCommand.includes(profilePath) ? [ownerProcess] : [])
-    ]).map((processInfo) => ({
+    processSources.push(...await findProcessesWithPs(profilePath));
+    inspectedAnySource = true;
+  } catch (error) {
+    errors.push(`ps: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  try {
+    processSources.push(...await findProcessesWithProc(profilePath));
+    inspectedAnySource = true;
+  } catch (error) {
+    errors.push(`proc: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  if (parsedLockOwner?.pid) {
+    try {
+      const ownerProcess = await readProcProcessInfo(parsedLockOwner.pid);
+      if (ownerProcess.rawCommand.includes(profilePath)) {
+        processSources.push(ownerProcess);
+        inspectedAnySource = true;
+      }
+    } catch (error) {
+      errors.push(`owner_pid_${parsedLockOwner.pid}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  if (!inspectedAnySource) {
+    return { inspected: false, error: errors.join("; ") || "process inspection unavailable" };
+  }
+
+  const processes = dedupeProcesses(processSources)
+    .filter((processInfo) => processInfo.pid !== process.pid)
+    .map((processInfo) => ({
       pid: processInfo.pid,
       rawCommand: processInfo.rawCommand,
       command: sanitizeProcessCommand(processInfo.rawCommand, profilePath)
     }));
-    return { inspected: true, processes };
-  } catch (error) {
-    return { inspected: false, error: error instanceof Error ? error.message : String(error) };
+  return { inspected: true, processes };
+}
+
+async function findProcessesWithPs(profilePath: string): Promise<Array<{ pid: number; rawCommand: string }>> {
+  const { stdout } = await execFileAsync("ps", ["-eo", "pid=,args="], { maxBuffer: 1024 * 1024 });
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+([\s\S]+)$/);
+      if (!match?.[1] || !match[2]) {
+        return undefined;
+      }
+      return { pid: Number(match[1]), rawCommand: match[2] };
+    })
+    .filter((processInfo): processInfo is { pid: number; rawCommand: string } => Boolean(processInfo))
+    .filter((processInfo) => processInfo.pid !== process.pid)
+    .filter((processInfo) => processInfo.rawCommand.includes(profilePath));
+}
+
+async function findProcessesWithProc(profilePath: string): Promise<Array<{ pid: number; rawCommand: string }>> {
+  const entries = await readdir("/proc", { withFileTypes: true });
+  const processes: Array<{ pid: number; rawCommand: string }> = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) {
+      continue;
+    }
+    const pid = Number(entry.name);
+    if (pid === process.pid) {
+      continue;
+    }
+    const processInfo = await readProcProcessInfo(pid).catch(() => undefined);
+    if (processInfo?.rawCommand.includes(profilePath)) {
+      processes.push(processInfo);
+    }
   }
+  return processes;
 }
 
 async function existingSingletonFiles(profilePath: string): Promise<DarazProfileLockFileStat[]> {
