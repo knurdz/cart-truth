@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -322,6 +322,25 @@ describe("Daraz check Buy Now flow", () => {
     expect(existsSync(join(profilePath, "SingletonLock"))).toBe(false);
   });
 
+  it("detects and removes a broken Chromium SingletonLock symlink", async () => {
+    const sessionsDir = await mkdtemp(join(tmpdir(), "daraz-flow-sessions-"));
+    tempDirs.push(sessionsDir);
+    const profilePath = darazProfilePath(sessionsDir);
+    await mkdir(profilePath, { recursive: true });
+    const lockPath = join(profilePath, "SingletonLock");
+    await symlink(join(profilePath, "missing-lock-target"), lockPath);
+    expect(existsSync(lockPath)).toBe(false);
+
+    const repair = await repairDarazProfileLock(profilePath);
+
+    expect(repair.reason).toBe("stale_lock_removed");
+    expect(repair.lockFileStats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "SingletonLock", kind: "symlink" })
+    ]));
+    expect(repair.removedFiles).toContain("SingletonLock");
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
   it("retries when Chromium reports a profile lock but no lock files remain", async () => {
     const { service } = await serviceWithReadyProfile();
     const page = new FakeDarazPage({
@@ -371,6 +390,28 @@ describe("Daraz check Buy Now flow", () => {
     expect(repair.repaired).toBe(false);
     expect(repair.activeProcesses.length).toBeGreaterThan(0);
     expect(existsSync(join(profilePath, "SingletonLock"))).toBe(true);
+  });
+
+  it("kills orphan Chromium profile processes only when cleanup is explicitly allowed", async () => {
+    const sessionsDir = await mkdtemp(join(tmpdir(), "daraz-flow-sessions-"));
+    tempDirs.push(sessionsDir);
+    const profilePath = darazProfilePath(sessionsDir);
+    await mkdir(profilePath, { recursive: true });
+    await writeFile(join(profilePath, "SingletonLock"), "active", "utf8");
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)", profilePath], {
+      stdio: "ignore"
+    });
+    childProcesses.push(child);
+    await waitForProcessTable(profilePath);
+
+    const repair = await repairDarazProfileLock(profilePath, { allowOrphanProcessCleanup: true });
+
+    expect(repair.reason).toBe("stale_lock_removed");
+    expect(repair.cleanupActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: "killed_process", pid: child.pid })
+    ]));
+    expect(repair.removedFiles).toContain("SingletonLock");
+    await waitForProcessExit(child.pid!);
   });
 
   it("requires a fresh Daraz login when saved session proxy differs from current proxy", async () => {
@@ -964,6 +1005,18 @@ async function waitForProcessTable(text: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Process table did not include ${text}`);
+}
+
+async function waitForProcessExit(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Process ${pid} did not exit`);
 }
 
 function restoreEnv(): void {

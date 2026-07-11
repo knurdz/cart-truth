@@ -234,6 +234,13 @@ export class LocalRuntime {
   private async startDarazSessionUnlocked(userId: string) {
     const credentials = this.store.getDarazCredentials(userId);
     this.logger.info("daraz browser session requested", { userId, hasStoredCredentials: Boolean(credentials) });
+    await this.sessionCapture.reset(userId);
+    await repairDarazProfileLock(darazProfilePath(this.sessionsDirForUser(userId)), {
+      logger: this.logger,
+      operation: "start_session_preflight",
+      userId,
+      allowOrphanProcessCleanup: true
+    });
     return this.sessionCapture.start(userId, darazProfilePath(this.sessionsDirForUser(userId)), credentials ? {
       username: credentials.username,
       password: decryptSecret(credentials.encryptedPassword)
@@ -257,7 +264,8 @@ export class LocalRuntime {
       await repairDarazProfileLock(darazProfilePath(this.sessionsDirForUser(userId)), {
         logger: this.logger,
         operation: "reset_session",
-        userId
+        userId,
+        allowOrphanProcessCleanup: true
       });
       this.logger.info("daraz browser session reset", { userId });
       return this.darazSessionStatus(userId);
@@ -270,7 +278,8 @@ export class LocalRuntime {
       await repairDarazProfileLock(darazProfilePath(this.sessionsDirForUser(userId)), {
         logger: this.logger,
         operation: "stop_browser",
-        userId
+        userId,
+        allowOrphanProcessCleanup: true
       });
       this.logger.info("daraz browser stopped", { userId });
       return this.darazSessionStatus(userId);
@@ -283,7 +292,8 @@ export class LocalRuntime {
       const repair = await repairDarazProfileLock(darazProfilePath(this.sessionsDirForUser(userId)), {
         logger: this.logger,
         operation: "repair_profile",
-        userId
+        userId,
+        allowOrphanProcessCleanup: true
       });
       this.logger.info("daraz browser profile repair requested", { userId, repair });
       return {
@@ -440,7 +450,8 @@ class PlaywrightDarazSessionCaptureManager implements DarazSessionCaptureManager
     }, {
       logger: this.logger,
       operation: "headed_session_start",
-      userId
+      userId,
+      allowOrphanProcessCleanup: true
     });
     const page = context.pages()[0] ?? await context.newPage();
     await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
@@ -606,7 +617,8 @@ class VncDarazSessionCaptureManager extends PlaywrightDarazSessionCaptureManager
       }, {
         logger: this.logger,
         operation: "vnc_session_start",
-        userId
+        userId,
+        allowOrphanProcessCleanup: true
       });
       const page = context.pages()[0] ?? await context.newPage();
       const loginUrl = "https://member.daraz.lk/user/login";

@@ -136,6 +136,16 @@ describe("Daraz API", () => {
     expect(saved.exists).toBe(true);
   });
 
+  it("returns a recoverable conflict when Daraz profile is locked during session start", async () => {
+    sessionCapture.startError = new Error("Daraz browser profile is still locked after automatic repair. Stop any open Daraz browser and try again.");
+
+    const response = await postRaw("/api/daraz/session/start", {});
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error).toContain("Daraz browser profile is still locked");
+  });
+
   it("repairs a stale Daraz browser profile lock for the current user", async () => {
     const started = await post("/api/daraz/session/start", {});
     await mkdir(started.profilePath, { recursive: true });
@@ -248,6 +258,11 @@ async function get(path: string) {
 }
 
 async function post(path: string, body: unknown) {
+  const response = await postRaw(path, body);
+  return response.json();
+}
+
+async function postRaw(path: string, body: unknown) {
   const response = await fetch(`${baseUrl}${path}`, {
     method: "POST",
     headers: {
@@ -256,7 +271,7 @@ async function post(path: string, body: unknown) {
     },
     body: JSON.stringify(body)
   });
-  return response.json();
+  return response;
 }
 
 async function login(): Promise<string> {
@@ -275,10 +290,14 @@ async function login(): Promise<string> {
 class FakeDarazSessionCapture implements DarazSessionCaptureManager {
   starts = 0;
   saves = 0;
+  startError: Error | undefined;
   saveError: Error | undefined;
 
   async start(_userId: string, profilePath: string) {
     this.starts += 1;
+    if (this.startError) {
+      throw this.startError;
+    }
     return {
       captureId: "fake-daraz-capture",
       loginUrl: "https://member.daraz.lk/user/login",

@@ -458,6 +458,9 @@ function formatApiError(error: unknown): { status: number; message: string } {
   if (/^Could not log in to Daraz automatically/i.test(message)) {
     return { status: 409, message };
   }
+  if (/^Daraz browser (?:profile|is already open)/i.test(message)) {
+    return { status: 409, message };
+  }
   if (isMissingPlaywrightBrowser(message)) {
     return {
       status: 503,

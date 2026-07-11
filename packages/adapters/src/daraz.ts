@@ -230,6 +230,7 @@ export class DarazService {
     const profileLaunchDiagnostics: DarazProfileLaunchDiagnostics = {
       operation: "daraz_check",
       ...(this.options.logger ? { logger: this.options.logger } : {}),
+      allowOrphanProcessCleanup: true,
       onEvent: (event) => {
         profileLockEvents.push(event);
       }

@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { rm, lstat, readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import { chromium, type BrowserContext } from "playwright";
@@ -11,6 +10,17 @@ const execFileAsync = promisify(execFile);
 const CHROMIUM_SINGLETON_FILES = ["SingletonLock", "SingletonSocket", "SingletonCookie"] as const;
 
 type LaunchOptions = Parameters<typeof chromium.launchPersistentContext>[1];
+type LockFileKind = "file" | "directory" | "symlink" | "socket" | "fifo" | "character_device" | "block_device" | "unknown";
+type CleanupAction = { action: "removed_lock_file" | "killed_process" | "kill_failed"; target: string; pid?: number; error?: string };
+type LockOwner = { pid?: number; host?: string };
+type ProcessInfo = { pid: number; command: string; rawCommand: string };
+
+export type DarazProfileLockFileStat = {
+  path: string;
+  name: string;
+  kind: LockFileKind;
+  size: number;
+};
 
 export type DarazProfileLockEvent = {
   event:
@@ -23,8 +33,11 @@ export type DarazProfileLockEvent = {
   operation?: string;
   userId?: string;
   lockFiles?: string[];
+  lockFileStats?: DarazProfileLockFileStat[];
   removedFiles?: string[];
   activeProcesses?: Array<{ pid: number; command: string }>;
+  parsedLockOwner?: LockOwner;
+  cleanupActions?: CleanupAction[];
   reason?: string;
   error?: string;
 };
@@ -32,8 +45,11 @@ export type DarazProfileLockEvent = {
 export type DarazProfileLockRepairResult = {
   profileId: string;
   lockFiles: string[];
+  lockFileStats: DarazProfileLockFileStat[];
   removedFiles: string[];
   activeProcesses: Array<{ pid: number; command: string }>;
+  parsedLockOwner?: LockOwner;
+  cleanupActions: CleanupAction[];
   inspectedProcesses: boolean;
   repaired: boolean;
   reason: "no_lock" | "stale_lock_removed" | "active_process" | "process_inspection_failed";
@@ -52,6 +68,7 @@ export type DarazProfileLaunchDiagnostics = {
   onEvent?: (event: DarazProfileLockEvent) => void;
   operation?: string;
   userId?: string;
+  allowOrphanProcessCleanup?: boolean;
 };
 
 export class DarazProfileInUseError extends Error {
@@ -76,14 +93,20 @@ export async function launchDarazPersistentContext(
       throw error;
     }
 
+    const parsedLockOwner = parseChromiumLockOwner(error);
     emitProfileLockEvent(diagnostics, {
       event: "daraz_profile_launch_failed",
       profileId: profileId(profilePath),
       ...diagnosticFields(diagnostics),
+      ...(parsedLockOwner ? { parsedLockOwner } : {}),
       error: error instanceof Error ? error.message : String(error)
     });
 
-    const repair = await repairDarazProfileLock(profilePath, diagnostics);
+    const repair = await repairDarazProfileLock(profilePath, {
+      ...diagnostics,
+      ...(parsedLockOwner ? { parsedLockOwner } : {}),
+      forceSingletonCleanup: true
+    });
     assertProfileRepairAllowsLaunch(repair);
 
     if (!repair.repaired && repair.reason !== "no_lock") {
@@ -98,6 +121,8 @@ export async function launchDarazPersistentContext(
       profileId: repair.profileId,
       ...diagnosticFields(diagnostics),
       removedFiles: repair.removedFiles,
+      ...(repair.parsedLockOwner ? { parsedLockOwner: repair.parsedLockOwner } : {}),
+      cleanupActions: repair.cleanupActions,
       reason: repair.repaired ? "stale_lock_removed" : "no_lock_after_launch_failure"
     });
 
@@ -118,17 +143,24 @@ export async function launchDarazPersistentContext(
 
 export async function repairDarazProfileLock(
   profilePath: string,
-  diagnostics: DarazProfileLaunchDiagnostics = {}
+  diagnostics: DarazProfileLaunchDiagnostics & { parsedLockOwner?: LockOwner; forceSingletonCleanup?: boolean } = {}
 ): Promise<DarazProfileLockRepairResult> {
   const normalizedProfilePath = resolve(profilePath);
   const id = profileId(normalizedProfilePath);
-  const lockFiles = existingSingletonFiles(normalizedProfilePath);
-  if (lockFiles.length === 0) {
+  const lockFileStats = await existingSingletonFiles(normalizedProfilePath);
+  const lockFiles = lockFileStats.map((lockFile) => lockFile.path);
+  const cleanupActions: CleanupAction[] = [];
+  const parsedLockOwner = diagnostics.parsedLockOwner;
+  const processInspection = await findProcessesUsingProfile(normalizedProfilePath, parsedLockOwner);
+  if (lockFiles.length === 0 && !diagnostics.forceSingletonCleanup) {
     return {
       profileId: id,
       lockFiles: [],
+      lockFileStats: [],
       removedFiles: [],
       activeProcesses: [],
+      ...(parsedLockOwner ? { parsedLockOwner } : {}),
+      cleanupActions,
       inspectedProcesses: true,
       repaired: false,
       reason: "no_lock"
@@ -139,16 +171,20 @@ export async function repairDarazProfileLock(
     event: "daraz_profile_lock_detected",
     profileId: id,
     ...diagnosticFields(diagnostics),
-    lockFiles: lockFiles.map((lockFile) => basename(lockFile))
+    lockFiles: lockFiles.map((lockFile) => basename(lockFile)),
+    lockFileStats,
+    ...(parsedLockOwner ? { parsedLockOwner } : {})
   });
 
-  const processInspection = await findProcessesUsingProfile(normalizedProfilePath);
   if (!processInspection.inspected) {
     return {
       profileId: id,
       lockFiles: lockFiles.map((lockFile) => basename(lockFile)),
+      lockFileStats,
       removedFiles: [],
       activeProcesses: [],
+      ...(parsedLockOwner ? { parsedLockOwner } : {}),
+      cleanupActions,
       inspectedProcesses: false,
       repaired: false,
       reason: "process_inspection_failed",
@@ -156,49 +192,99 @@ export async function repairDarazProfileLock(
     };
   }
 
+  let activeProcesses: Array<{ pid: number; command: string }> = [];
   if (processInspection.processes.length > 0) {
-    const activeProcesses = processInspection.processes.map((processInfo) => ({
+    activeProcesses = processInspection.processes.map((processInfo) => ({
       pid: processInfo.pid,
       command: processInfo.command
     }));
-    emitProfileLockEvent(diagnostics, {
-      event: "daraz_profile_lock_active_process",
-      profileId: id,
-      ...diagnosticFields(diagnostics),
-      lockFiles: lockFiles.map((lockFile) => basename(lockFile)),
-      activeProcesses
-    });
-    return {
-      profileId: id,
-      lockFiles: lockFiles.map((lockFile) => basename(lockFile)),
-      removedFiles: [],
-      activeProcesses,
-      inspectedProcesses: true,
-      repaired: false,
-      reason: "active_process"
-    };
+    if (diagnostics.allowOrphanProcessCleanup) {
+      for (const processInfo of processInspection.processes) {
+        const killed = await killProcess(processInfo.pid);
+        cleanupActions.push(killed);
+      }
+      await delay(300);
+      if (cleanupActions.some((action) => action.action === "kill_failed")) {
+        emitProfileLockEvent(diagnostics, {
+          event: "daraz_profile_lock_active_process",
+          profileId: id,
+          ...diagnosticFields(diagnostics),
+          lockFiles: lockFiles.map((lockFile) => basename(lockFile)),
+          lockFileStats,
+          activeProcesses,
+          ...(parsedLockOwner ? { parsedLockOwner } : {}),
+          cleanupActions
+        });
+        return {
+          profileId: id,
+          lockFiles: lockFiles.map((lockFile) => basename(lockFile)),
+          lockFileStats,
+          removedFiles: [],
+          activeProcesses,
+          ...(parsedLockOwner ? { parsedLockOwner } : {}),
+          cleanupActions,
+          inspectedProcesses: true,
+          repaired: false,
+          reason: "active_process"
+        };
+      }
+    } else {
+      emitProfileLockEvent(diagnostics, {
+        event: "daraz_profile_lock_active_process",
+        profileId: id,
+        ...diagnosticFields(diagnostics),
+        lockFiles: lockFiles.map((lockFile) => basename(lockFile)),
+        lockFileStats,
+        activeProcesses,
+        ...(parsedLockOwner ? { parsedLockOwner } : {})
+      });
+      return {
+        profileId: id,
+        lockFiles: lockFiles.map((lockFile) => basename(lockFile)),
+        lockFileStats,
+        removedFiles: [],
+        activeProcesses,
+        ...(parsedLockOwner ? { parsedLockOwner } : {}),
+        cleanupActions,
+        inspectedProcesses: true,
+        repaired: false,
+        reason: "active_process"
+      };
+    }
   }
 
   const removedFiles: string[] = [];
-  for (const lockFile of lockFiles) {
-    await rm(lockFile, { force: true }).catch(() => undefined);
-    removedFiles.push(basename(lockFile));
+  const pathsToRemove = new Set([
+    ...lockFiles,
+    ...(diagnostics.forceSingletonCleanup ? CHROMIUM_SINGLETON_FILES.map((file) => resolve(normalizedProfilePath, file)) : [])
+  ]);
+  for (const lockFile of pathsToRemove) {
+    await rm(lockFile, { force: true }).then(() => {
+      removedFiles.push(basename(lockFile));
+      cleanupActions.push({ action: "removed_lock_file", target: basename(lockFile) });
+    }).catch(() => undefined);
   }
 
     emitProfileLockEvent(diagnostics, {
       event: "daraz_profile_lock_stale_cleanup",
       profileId: id,
       ...diagnosticFields(diagnostics),
-      removedFiles
+      lockFileStats,
+      removedFiles,
+      ...(parsedLockOwner ? { parsedLockOwner } : {}),
+      cleanupActions
     });
 
   return {
     profileId: id,
     lockFiles: lockFiles.map((lockFile) => basename(lockFile)),
+    lockFileStats,
     removedFiles,
-    activeProcesses: [],
+    activeProcesses,
+    ...(parsedLockOwner ? { parsedLockOwner } : {}),
+    cleanupActions,
     inspectedProcesses: true,
-    repaired: removedFiles.length > 0,
+    repaired: removedFiles.length > 0 || cleanupActions.some((action) => action.action === "killed_process"),
     reason: "stale_lock_removed"
   };
 }
@@ -223,13 +309,13 @@ function assertProfileRepairAllowsLaunch(repair: DarazProfileLockRepairResult): 
   }
 }
 
-async function findProcessesUsingProfile(profilePath: string): Promise<
-  | { inspected: true; processes: Array<{ pid: number; command: string }> }
+async function findProcessesUsingProfile(profilePath: string, parsedLockOwner?: LockOwner): Promise<
+  | { inspected: true; processes: ProcessInfo[] }
   | { inspected: false; error: string }
 > {
   try {
     const { stdout } = await execFileAsync("ps", ["-eo", "pid=,args="], { maxBuffer: 1024 * 1024 });
-    const processes = stdout
+    const psProcesses = stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
       .map((line) => {
@@ -241,21 +327,38 @@ async function findProcessesUsingProfile(profilePath: string): Promise<
       })
       .filter((processInfo): processInfo is { pid: number; command: string } => Boolean(processInfo))
       .filter((processInfo) => processInfo.pid !== process.pid)
-      .filter((processInfo) => processInfo.command.includes(profilePath))
-      .map((processInfo) => ({
-        pid: processInfo.pid,
-        command: processInfo.command.replaceAll(profilePath, "<profile>").slice(0, 240)
-      }));
+      .filter((processInfo) => processInfo.command.includes(profilePath));
+    const ownerProcess = parsedLockOwner?.pid ? await readProcProcessInfo(parsedLockOwner.pid).catch(() => undefined) : undefined;
+    const processes = dedupeProcesses([
+      ...psProcesses.map((processInfo) => ({ pid: processInfo.pid, rawCommand: processInfo.command })),
+      ...(ownerProcess && ownerProcess.rawCommand.includes(profilePath) ? [ownerProcess] : [])
+    ]).map((processInfo) => ({
+      pid: processInfo.pid,
+      rawCommand: processInfo.rawCommand,
+      command: sanitizeProcessCommand(processInfo.rawCommand, profilePath)
+    }));
     return { inspected: true, processes };
   } catch (error) {
     return { inspected: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
-function existingSingletonFiles(profilePath: string): string[] {
-  return CHROMIUM_SINGLETON_FILES
-    .map((file) => resolve(profilePath, file))
-    .filter((path) => existsSync(path));
+async function existingSingletonFiles(profilePath: string): Promise<DarazProfileLockFileStat[]> {
+  const stats: DarazProfileLockFileStat[] = [];
+  for (const file of CHROMIUM_SINGLETON_FILES) {
+    const path = resolve(profilePath, file);
+    const stat = await lstat(path).catch(() => undefined);
+    if (!stat) {
+      continue;
+    }
+    stats.push({
+      path,
+      name: file,
+      kind: lockFileKind(stat),
+      size: stat.size
+    });
+  }
+  return stats;
 }
 
 function emitProfileLockEvent(diagnostics: DarazProfileLaunchDiagnostics, event: DarazProfileLockEvent): void {
@@ -285,4 +388,71 @@ function profileId(profilePath: string): string {
 
 async function delay(ms: number): Promise<void> {
   await new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+function parseChromiumLockOwner(error: unknown): LockOwner | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = message.match(/another Chromium process \((\d+)\)(?: on another computer \(([^)]+)\))?/i);
+  if (!match?.[1]) {
+    return undefined;
+  }
+  return {
+    pid: Number(match[1]),
+    ...(match[2] ? { host: match[2] } : {})
+  };
+}
+
+async function readProcProcessInfo(pid: number): Promise<{ pid: number; rawCommand: string }> {
+  const raw = await readFile(`/proc/${pid}/cmdline`, "utf8");
+  const rawCommand = raw.split("\0").filter(Boolean).join(" ");
+  return { pid, rawCommand };
+}
+
+function dedupeProcesses(processes: Array<{ pid: number; rawCommand: string }>): Array<{ pid: number; rawCommand: string }> {
+  const seen = new Set<number>();
+  const deduped: Array<{ pid: number; rawCommand: string }> = [];
+  for (const processInfo of processes) {
+    if (seen.has(processInfo.pid)) {
+      continue;
+    }
+    seen.add(processInfo.pid);
+    deduped.push(processInfo);
+  }
+  return deduped;
+}
+
+function sanitizeProcessCommand(command: string, profilePath: string): string {
+  return command.replaceAll(profilePath, "<profile>").slice(0, 240);
+}
+
+async function killProcess(pid: number): Promise<CleanupAction> {
+  try {
+    process.kill(pid, "SIGTERM");
+    await delay(250);
+    try {
+      process.kill(pid, 0);
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Process exited after SIGTERM.
+    }
+    return { action: "killed_process", target: String(pid), pid };
+  } catch (error) {
+    return {
+      action: "kill_failed",
+      target: String(pid),
+      pid,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function lockFileKind(stat: Awaited<ReturnType<typeof lstat>>): LockFileKind {
+  if (stat.isSymbolicLink()) return "symlink";
+  if (stat.isSocket()) return "socket";
+  if (stat.isFile()) return "file";
+  if (stat.isDirectory()) return "directory";
+  if (stat.isFIFO()) return "fifo";
+  if (stat.isCharacterDevice()) return "character_device";
+  if (stat.isBlockDevice()) return "block_device";
+  return "unknown";
 }
