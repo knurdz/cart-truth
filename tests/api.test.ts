@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApiApp } from "../apps/web/src/api.js";
-import { LocalRuntime, nextScheduledPriceCheckAt, type DarazSessionCaptureManager } from "../apps/web/src/runtime.js";
+import { LocalRuntime, nextScheduledPriceCheckAt, type DarazAutoLoginAttempt, type DarazSessionCaptureManager } from "../apps/web/src/runtime.js";
 import type { GoogleIdentity, GoogleOAuthClient } from "../apps/web/src/auth.js";
 import { parseProxyString } from "@carttruth/core";
 import type { DarazCheckRequest, DarazCheckResult, DarazSearchResult } from "@carttruth/schemas";
@@ -396,6 +396,47 @@ describe("Daraz API", () => {
     expect(response.session.captureId).toBe("fake-daraz-capture");
   });
 
+  it("stores needs_user_action when submitted auto-login remains on the Daraz login page", async () => {
+    const user = currentUser();
+    runtime.store.upsertSavedLink(user.id, fakeSearchResult);
+    await post("/api/daraz/credentials", {
+      username: "fresh@example.com",
+      password: "daraz-password"
+    });
+    sessionCapture.saveError = new Error("Daraz still shows the login page. Finish login in the inbuilt browser, then save again.");
+
+    const queued = await post("/api/links/check-jobs", {});
+    const job = await waitForJob(queued.job.id);
+
+    expect(queued.job.status).toBe("queued");
+    expect(job.status).toBe("needs_user_action");
+    expect(job.message).toContain("Daraz kept the login page after auto-login");
+    expect(job.session.captureId).toBe("fake-daraz-capture");
+    expect(job.session.browserUrl).toBe("/vnc/fake-token/vnc.html");
+  });
+
+  it("keeps rejected Daraz credentials on the credential failure path", async () => {
+    const user = currentUser();
+    runtime.store.upsertSavedLink(user.id, fakeSearchResult);
+    await post("/api/daraz/credentials", {
+      username: "buyer@example.com",
+      password: "wrong-password"
+    });
+    sessionCapture.autoLogin = {
+      usernameFound: true,
+      passwordFound: true,
+      loginButtonFound: true,
+      submitted: true,
+      credentialsRejected: true
+    };
+    sessionCapture.saveError = new Error("Daraz still shows the login page. Finish login in the inbuilt browser, then save again.");
+
+    const response = await post("/api/links/check", {});
+
+    expect(response.error).toContain("Could not log in to Daraz automatically");
+    expect(response.error).toContain("Check your saved Daraz email/phone and password");
+  });
+
   it("lists and reads Daraz runs", async () => {
     await post("/api/daraz/check", { products: [{ ...fakeSearchResult, quantity: 1 }] });
 
@@ -411,6 +452,130 @@ describe("Daraz API", () => {
     const response = await post("/api/daraz/search", { query: "phone" });
     expect(response.error).toBe("Login required.");
     cookie = previous;
+  });
+});
+
+describe("Automation API and MCP", () => {
+  it("creates, updates, and deletes scoped API keys without exposing stored secrets", async () => {
+    const created = await post("/api/api-keys", { name: "Build bot", scopes: ["rest"] });
+
+    expect(created.token).toMatch(/^ct_/);
+    expect(created.apiKey.name).toBe("Build bot");
+    expect(created.apiKey.scopes).toEqual(["rest"]);
+    expect(JSON.stringify(runtime.store.listApiKeys(currentUser().id))).not.toContain(created.token);
+
+    const updated = await patch(`/api/api-keys/${created.apiKey.id}`, { name: "MCP bot", scopes: ["mcp"] });
+    expect(updated.apiKey.name).toBe("MCP bot");
+    expect(updated.apiKey.scopes).toEqual(["mcp"]);
+
+    const listed = await get("/api/api-keys");
+    expect(listed.apiKeys.some((apiKey: { id: string }) => apiKey.id === created.apiKey.id)).toBe(true);
+
+    const deleted = await deleteRaw(`/api/api-keys/${created.apiKey.id}`);
+    expect(deleted.status).toBe(200);
+    const afterDelete = await apiGetRaw("/api/v1/links", created.token);
+    expect(afterDelete.status).toBe(401);
+  });
+
+  it("requires bearer auth and REST scope for v1 endpoints", async () => {
+    const mcpOnly = await post("/api/api-keys", { name: "MCP only", scopes: ["mcp"] });
+
+    const missing = await fetch(`${baseUrl}/api/v1/links`);
+    const wrongScope = await apiGetRaw("/api/v1/links", mcpOnly.token);
+
+    expect(missing.status).toBe(401);
+    expect(wrongScope.status).toBe(403);
+  });
+
+  it("automates links, settings, queued jobs, and runs through REST v1", async () => {
+    const createdKey = await post("/api/api-keys", { name: "REST bot", scopes: ["rest"] });
+
+    const created = await apiPost("/api/v1/links", createdKey.token, { url: "https://www.daraz.lk/products/sample-i1-s1.html" });
+    expect(created.link.title).toBe("Sample Daraz Product");
+    expect(created.checkJob.status).toBe("queued");
+
+    const updatedSettings = await apiPatch("/api/v1/settings", createdKey.token, {
+      autoPriceCheckEnabled: true,
+      autoPriceCheckIntervalHours: 4
+    });
+    expect(updatedSettings.autoPriceCheckEnabled).toBe(true);
+    expect(updatedSettings.autoPriceCheckIntervalHours).toBe(4);
+
+    await post("/api/daraz/credentials", {
+      username: "buyer@example.com",
+      password: "daraz-password"
+    });
+    const queued = await apiPost("/api/v1/links/check-jobs", createdKey.token, {});
+    const job = await waitForApiJob(createdKey.token, queued.job.id);
+    expect(job.status).toBe("completed");
+    expect(job.runId).toBe("daraz-test-run");
+
+    const runs = await apiGet("/api/v1/runs", createdKey.token);
+    expect(runs.runs.some((run: { runId: string }) => run.runId === "daraz-test-run")).toBe(true);
+    const run = await apiGet(`/api/v1/runs/${job.runId}`, createdKey.token);
+    expect(run.runId).toBe("daraz-test-run");
+  });
+
+  it("rate limits task-creating REST calls per API key", async () => {
+    const createdKey = await post("/api/api-keys", { name: "Limited bot", scopes: ["rest"] });
+    let limited: Response | undefined;
+
+    for (let index = 0; index < 11; index += 1) {
+      const response = await apiPostRaw("/api/v1/links/check-jobs", createdKey.token, {});
+      if (response.status === 429) {
+        limited = response;
+        break;
+      }
+    }
+
+    expect(limited?.status).toBe(429);
+    expect(limited?.headers.get("retry-after")).toBeTruthy();
+  });
+
+  it("lists and calls CartTruth MCP tools with MCP-scoped keys", async () => {
+    const createdKey = await post("/api/api-keys", { name: "MCP bot", scopes: ["mcp"] });
+    const restOnly = await post("/api/api-keys", { name: "REST only", scopes: ["rest"] });
+
+    const denied = await mcpRaw(restOnly.token, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: {}
+    });
+    expect(denied.status).toBe(403);
+
+    const initialized = await mcpRequest(createdKey.token, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "carttruth-test", version: "0.1.0" }
+      }
+    });
+    expect(initialized.result.serverInfo.name).toBe("carttruth");
+
+    const listed = await mcpRequest(createdKey.token, {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+      params: {}
+    });
+    expect(listed.result.tools.some((tool: { name: string }) => tool.name === "carttruth_add_link")).toBe(true);
+
+    const added = await mcpRequest(createdKey.token, {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "carttruth_add_link",
+        arguments: { url: "https://www.daraz.lk/products/sample-i1-s1.html" }
+      }
+    });
+    const payload = JSON.parse(added.result.content[0].text);
+    expect(payload.link.title).toBe("Sample Daraz Product");
+    expect(payload.checkJob.source).toBe("link_added");
   });
 });
 
@@ -438,6 +603,13 @@ async function patch(path: string, body: unknown) {
   return response.json();
 }
 
+async function deleteRaw(path: string) {
+  return fetch(`${baseUrl}${path}`, {
+    method: "DELETE",
+    headers: cookie ? { cookie } : {}
+  });
+}
+
 async function postRaw(path: string, body: unknown) {
   const response = await fetch(`${baseUrl}${path}`, {
     method: "POST",
@@ -448,6 +620,73 @@ async function postRaw(path: string, body: unknown) {
     body: JSON.stringify(body)
   });
   return response;
+}
+
+async function apiGet(path: string, token: string) {
+  const response = await apiGetRaw(path, token);
+  return response.json();
+}
+
+async function apiGetRaw(path: string, token: string) {
+  return fetch(`${baseUrl}${path}`, {
+    headers: { authorization: `Bearer ${token}` }
+  });
+}
+
+async function apiPost(path: string, token: string, body: unknown) {
+  const response = await apiPostRaw(path, token, body);
+  return response.json();
+}
+
+async function apiPostRaw(path: string, token: string, body: unknown) {
+  return fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+}
+
+async function apiPatch(path: string, token: string, body: unknown) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "PATCH",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+  return response.json();
+}
+
+async function mcpRaw(token: string, body: unknown) {
+  return fetch(`${baseUrl}/mcp`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream"
+    },
+    body: JSON.stringify(body)
+  });
+}
+
+async function mcpRequest(token: string, body: unknown) {
+  const response = await mcpRaw(token, body);
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`MCP ${response.status}: ${text}`);
+  }
+  if (response.headers.get("content-type")?.includes("text/event-stream")) {
+    const dataLine = text.split("\n").find((line) => line.startsWith("data: "));
+    if (!dataLine) {
+      throw new Error(`MCP event stream did not contain data: ${text}`);
+    }
+    return JSON.parse(dataLine.slice("data: ".length));
+  }
+  return JSON.parse(text);
 }
 
 async function startGoogle() {
@@ -514,14 +753,31 @@ async function waitForJob(jobId: string) {
   throw new Error(`Timed out waiting for price check job ${jobId}`);
 }
 
+async function waitForApiJob(token: string, jobId: string) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const response = await apiGet(`/api/v1/price-check-jobs/${jobId}`, token);
+    if (!["queued", "running"].includes(response.job.status)) {
+      return response.job;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for price check job ${jobId}`);
+}
+
 class FakeDarazSessionCapture implements DarazSessionCaptureManager {
   starts = 0;
   saves = 0;
   startError: Error | undefined;
   saveError: Error | undefined;
+  autoLogin: DarazAutoLoginAttempt = {
+    usernameFound: true,
+    passwordFound: true,
+    loginButtonFound: true,
+    submitted: true
+  };
   active: { userId: string; captureId: string; profilePath: string; browserUrl: string } | undefined;
 
-  async start(userId: string, profilePath: string) {
+  async start(userId: string, profilePath: string, credentials?: { username: string; password: string }) {
     this.starts += 1;
     if (this.startError) {
       throw this.startError;
@@ -537,7 +793,8 @@ class FakeDarazSessionCapture implements DarazSessionCaptureManager {
       loginUrl: "https://member.daraz.lk/user/login",
       profilePath,
       storagePath: profilePath,
-      browserUrl: "/vnc/fake-token/vnc.html"
+      browserUrl: "/vnc/fake-token/vnc.html",
+      ...(credentials ? { autoLogin: this.autoLogin } : {})
     };
   }
 

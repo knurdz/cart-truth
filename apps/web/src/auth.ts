@@ -4,6 +4,7 @@ import { OAuth2Client } from "google-auth-library";
 
 const scrypt = promisify(scryptCallback);
 const SESSION_BYTES = 32;
+const API_KEY_BYTES = 32;
 const PASSWORD_KEY_BYTES = 64;
 const OAUTH_BYTES = 32;
 const OAUTH_MAX_AGE_SECONDS = 10 * 60;
@@ -41,6 +42,23 @@ export function newSessionCookie(days = 14): SessionCookie {
 
 export function hashSessionToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+export function newApiKeyToken(): { token: string; hash: string; prefix: string } {
+  const token = `ct_${randomBytes(API_KEY_BYTES).toString("base64url")}`;
+  return {
+    token,
+    hash: hashApiKeyToken(token),
+    prefix: apiKeyPrefix(token)
+  };
+}
+
+export function hashApiKeyToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export function apiKeyPrefix(token: string): string {
+  return token.slice(0, 12);
 }
 
 export async function hashPassword(password: string): Promise<string> {

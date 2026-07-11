@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { DarazCheckResult, DarazSearchResult } from "@carttruth/schemas";
-import { hashSessionToken, type UserRole } from "./auth.js";
+import { hashApiKeyToken, hashSessionToken, type UserRole } from "./auth.js";
 
 export interface AppUser {
   id: string;
@@ -41,6 +41,20 @@ export interface AppSession {
   tokenHash: string;
   expiresAt: string;
   createdAt: string;
+}
+
+export type ApiKeyScope = "rest" | "mcp";
+
+export interface ApiKeyRecord {
+  id: string;
+  userId: string;
+  name: string;
+  tokenHash: string;
+  tokenPrefix: string;
+  scopes: ApiKeyScope[];
+  createdAt: string;
+  lastUsedAt?: string;
+  revokedAt?: string;
 }
 
 export interface RunRecord {
@@ -134,6 +148,18 @@ export class AppStore {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        token_prefix TEXT NOT NULL,
+        scopes_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        revoked_at TEXT
+      );
+
       CREATE TABLE IF NOT EXISTS saved_links (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -210,6 +236,9 @@ export class AppStore {
 
       CREATE INDEX IF NOT EXISTS user_settings_auto_due_idx
         ON user_settings(auto_price_check_enabled, auto_price_check_next_run_at);
+
+      CREATE INDEX IF NOT EXISTS api_keys_user_idx
+        ON api_keys(user_id, revoked_at, created_at);
     `);
   }
 
@@ -427,6 +456,125 @@ export class AppStore {
         SELECT id FROM users WHERE google_sub IS NULL
       )
     `).run();
+  }
+
+  createApiKey(input: {
+    userId: string;
+    name: string;
+    tokenHash: string;
+    tokenPrefix: string;
+    scopes: ApiKeyScope[];
+  }): ApiKeyRecord {
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    this.db.prepare(`
+      INSERT INTO api_keys (id, user_id, name, token_hash, token_prefix, scopes_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, input.userId, input.name, input.tokenHash, input.tokenPrefix, JSON.stringify(normalizeApiKeyScopes(input.scopes)), now);
+    return this.getApiKey(input.userId, id)!;
+  }
+
+  listApiKeys(userId: string): ApiKeyRecord[] {
+    return this.db.prepare(`
+      SELECT * FROM api_keys
+      WHERE user_id = ? AND revoked_at IS NULL
+      ORDER BY created_at DESC
+    `).all(userId).map(mapApiKey);
+  }
+
+  getApiKey(userId: string, keyId: string): ApiKeyRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM api_keys WHERE user_id = ? AND id = ? AND revoked_at IS NULL").get(userId, keyId) as SqlRow | undefined;
+    return row ? mapApiKey(row) : undefined;
+  }
+
+  updateApiKey(userId: string, keyId: string, input: { name?: string; scopes?: ApiKeyScope[] }): ApiKeyRecord | undefined {
+    const current = this.getApiKey(userId, keyId);
+    if (!current) {
+      return undefined;
+    }
+    this.db.prepare(`
+      UPDATE api_keys
+      SET name = ?, scopes_json = ?
+      WHERE user_id = ? AND id = ? AND revoked_at IS NULL
+    `).run(
+      input.name ?? current.name,
+      JSON.stringify(input.scopes ? normalizeApiKeyScopes(input.scopes) : current.scopes),
+      userId,
+      keyId
+    );
+    return this.getApiKey(userId, keyId);
+  }
+
+  revokeApiKey(userId: string, keyId: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE api_keys
+      SET revoked_at = ?
+      WHERE user_id = ? AND id = ? AND revoked_at IS NULL
+    `).run(new Date().toISOString(), userId, keyId);
+    return result.changes > 0;
+  }
+
+  findApiKeyByToken(token: string): { apiKey: ApiKeyRecord; user: AppUser } | undefined {
+    const row = this.db.prepare(`
+      SELECT
+        api_keys.id AS api_key_id,
+        api_keys.user_id,
+        api_keys.name,
+        api_keys.token_hash,
+        api_keys.token_prefix,
+        api_keys.scopes_json,
+        api_keys.created_at AS api_key_created_at,
+        api_keys.last_used_at,
+        api_keys.revoked_at,
+        users.id AS user_id,
+        users.username,
+        users.google_sub,
+        users.email,
+        users.email_normalized,
+        users.display_name,
+        users.avatar_url,
+        users.role,
+        users.disabled,
+        users.must_change_password,
+        users.created_at AS user_created_at
+      FROM api_keys
+      JOIN users ON users.id = api_keys.user_id
+      WHERE api_keys.token_hash = ?
+        AND api_keys.revoked_at IS NULL
+    `).get(hashApiKeyToken(token)) as SqlRow | undefined;
+    if (!row || Number(row.disabled ?? 0) === 1) {
+      return undefined;
+    }
+    return {
+      apiKey: mapApiKey({
+        id: row.api_key_id,
+        user_id: row.user_id,
+        name: row.name,
+        token_hash: row.token_hash,
+        token_prefix: row.token_prefix,
+        scopes_json: row.scopes_json,
+        created_at: row.api_key_created_at,
+        last_used_at: row.last_used_at,
+        revoked_at: row.revoked_at
+      }),
+      user: {
+        id: String(row.user_id),
+        username: String(row.username),
+        ...(row.google_sub ? { googleSub: String(row.google_sub) } : {}),
+        ...(row.email ? { email: String(row.email) } : {}),
+        ...(row.email_normalized ? { emailNormalized: String(row.email_normalized) } : {}),
+        ...(row.display_name ? { displayName: String(row.display_name) } : {}),
+        ...(row.avatar_url ? { avatarUrl: String(row.avatar_url) } : {}),
+        role: String(row.role) as UserRole,
+        disabled: false,
+        mustChangePassword: Number(row.must_change_password ?? 0) === 1,
+        createdAt: String(row.user_created_at)
+      }
+    };
+  }
+
+  markApiKeyUsed(keyId: string): void {
+    this.db.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?").run(new Date().toISOString(), keyId);
   }
 
   upsertSavedLink(userId: string, product: DarazSearchResult): SavedLink {
@@ -716,6 +864,15 @@ export function savedLinkToProduct(link: SavedLink): DarazSearchResult {
   };
 }
 
+export function normalizeApiKeyScopes(scopes: ApiKeyScope[]): ApiKeyScope[] {
+  const allowed = new Set<ApiKeyScope>(["rest", "mcp"]);
+  const normalized = Array.from(new Set(scopes.filter((scope): scope is ApiKeyScope => allowed.has(scope))));
+  if (normalized.length === 0) {
+    throw new Error("Select at least one API key scope.");
+  }
+  return normalized;
+}
+
 function mapUser(row: SqlRow): AppUser {
   return {
     id: String(row.id),
@@ -736,6 +893,20 @@ function mapUserWithPassword(row: SqlRow): UserWithPassword {
   return {
     ...mapUser(row),
     passwordHash: String(row.password_hash)
+  };
+}
+
+function mapApiKey(row: SqlRow): ApiKeyRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    name: String(row.name),
+    tokenHash: String(row.token_hash),
+    tokenPrefix: String(row.token_prefix),
+    scopes: normalizeApiKeyScopes(JSON.parse(String(row.scopes_json)) as ApiKeyScope[]),
+    createdAt: String(row.created_at),
+    ...(row.last_used_at ? { lastUsedAt: String(row.last_used_at) } : {}),
+    ...(row.revoked_at ? { revokedAt: String(row.revoked_at) } : {})
   };
 }
 

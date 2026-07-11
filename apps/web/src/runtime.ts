@@ -243,10 +243,26 @@ export class LocalRuntime {
     } catch (error) {
       const session = this.darazSessionStatus(userId);
       const message = error instanceof Error ? error.message : String(error);
-      const needsAction = session.status === "needs_verification" || /captcha|verification|otp|code/i.test(message);
+      const submittedButLoginRemained = Boolean(started.autoLogin?.submitted)
+        && !started.autoLogin?.credentialsRejected
+        && (session.status === "needs_login" || /still shows the login page/i.test(message));
+      const needsAction = submittedButLoginRemained || session.status === "needs_verification" || /captcha|verification|otp|code/i.test(message);
       if (needsAction) {
-        this.logger.warn("auto_login_needs_user_action", { userId, captureId: started.captureId, status: session.status, validationUrl: session.validationUrl });
-        const actionMessage = "Daraz needs OTP, captcha, or verification. Open the remote browser, finish verification, then save session.";
+        if (submittedButLoginRemained) {
+          this.logger.warn("auto_login_submitted_but_login_page_remained", {
+            userId,
+            captureId: started.captureId,
+            status: session.status,
+            validationUrl: session.validationUrl,
+            autoLogin: started.autoLogin,
+            error: message
+          });
+        } else {
+          this.logger.warn("auto_login_needs_user_action", { userId, captureId: started.captureId, status: session.status, validationUrl: session.validationUrl });
+        }
+        const actionMessage = submittedButLoginRemained
+          ? "Daraz kept the login page after auto-login. Open the remote browser, finish any Daraz verification or account challenge, then save session."
+          : "Daraz needs OTP, captcha, or verification. Open the remote browser, finish verification, then save session.";
         throw new DarazSessionActionRequiredError(actionMessage, {
           ...session,
           live: true,
@@ -614,8 +630,17 @@ export class DarazSessionActionRequiredError extends Error {
   }
 }
 
+export interface DarazSessionStartResult {
+  captureId: string;
+  loginUrl: string;
+  profilePath: string;
+  storagePath: string;
+  browserUrl?: string;
+  autoLogin?: DarazAutoLoginAttempt;
+}
+
 export interface DarazSessionCaptureManager {
-  start(userId: string, profilePath: string, credentials?: DarazLoginCredentials): Promise<{ captureId: string; loginUrl: string; profilePath: string; storagePath: string; browserUrl?: string }>;
+  start(userId: string, profilePath: string, credentials?: DarazLoginCredentials): Promise<DarazSessionStartResult>;
   save(userId: string, captureId: string): Promise<{ captureId: string; profilePath: string; storagePath: string; exists: boolean; session: DarazSessionMetadata & { live: boolean; captureId?: string; browserUrl?: string } }>;
   activeCapture(userId: string): { captureId: string; profilePath: string; browserUrl?: string } | undefined;
   activeContext(userId: string): Promise<BrowserContext | undefined> | BrowserContext | undefined;
@@ -645,15 +670,17 @@ class PlaywrightDarazSessionCaptureManager implements DarazSessionCaptureManager
     const existing = this.activeCapture(userId);
     if (existing) {
       const capture = this.captures.get(existing.captureId);
+      let autoLogin: DarazAutoLoginAttempt | undefined;
       if (capture && credentials) {
-        await this.tryStoredCredentialLogin(userId, capture.context, credentials, existing.captureId);
+        autoLogin = await this.tryStoredCredentialLogin(userId, capture.context, credentials, existing.captureId);
       }
       this.logger.debug("reusing active headed daraz browser", { userId, captureId: existing.captureId });
       return {
         captureId: existing.captureId,
         loginUrl: "https://member.daraz.lk/user/login",
         profilePath: existing.profilePath,
-        storagePath: existing.profilePath
+        storagePath: existing.profilePath,
+        ...(autoLogin ? { autoLogin } : {})
       };
     }
 
@@ -672,12 +699,13 @@ class PlaywrightDarazSessionCaptureManager implements DarazSessionCaptureManager
     });
     const page = context.pages()[0] ?? await context.newPage();
     await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
+    let autoLogin: DarazAutoLoginAttempt | undefined;
     if (credentials) {
-      await this.tryStoredCredentialLogin(userId, context, credentials, captureId);
+      autoLogin = await this.tryStoredCredentialLogin(userId, context, credentials, captureId);
     }
     this.captures.set(captureId, { userId, context, profilePath });
     this.logger.info("headed daraz browser opened", { userId, captureId, profilePath });
-    return { captureId, loginUrl, profilePath, storagePath: profilePath };
+    return { captureId, loginUrl, profilePath, storagePath: profilePath, ...(autoLogin ? { autoLogin } : {}) };
   }
 
   async save(userId: string, captureId: string) {
@@ -763,15 +791,16 @@ class PlaywrightDarazSessionCaptureManager implements DarazSessionCaptureManager
     this.captures.clear();
   }
 
-  protected async tryStoredCredentialLogin(userId: string, context: BrowserContext, credentials: DarazLoginCredentials, captureId: string): Promise<void> {
+  protected async tryStoredCredentialLogin(userId: string, context: BrowserContext, credentials: DarazLoginCredentials, captureId: string): Promise<DarazAutoLoginAttempt> {
     const page = context.pages()[0] ?? await context.newPage();
     const result = await tryDarazAutoLogin(page, credentials);
     const meta = { userId, captureId, ...result };
     if (result.submitted) {
       this.logger.info("daraz_auto_login_submitted", meta);
-      return;
+      return result;
     }
     this.logger.warn("daraz_auto_login_not_submitted", meta);
+    return result;
   }
 }
 
@@ -797,15 +826,17 @@ class VncDarazSessionCaptureManager extends PlaywrightDarazSessionCaptureManager
       const capture = this.vncCaptures.get(existing.captureId);
       if (capture) {
         capture.expiresAt = Date.now() + this.idleTimeoutMs;
+        let autoLogin: DarazAutoLoginAttempt | undefined;
         if (credentials) {
-          await this.tryStoredCredentialLogin(userId, capture.context, credentials, capture.captureId);
+          autoLogin = await this.tryStoredCredentialLogin(userId, capture.context, credentials, capture.captureId);
         }
         return {
           captureId: capture.captureId,
           loginUrl: "https://member.daraz.lk/user/login",
           profilePath: capture.profilePath,
           storagePath: capture.profilePath,
-          browserUrl: this.browserUrl(capture.token)
+          browserUrl: this.browserUrl(capture.token),
+          ...(autoLogin ? { autoLogin } : {})
         };
       }
     }
@@ -840,8 +871,9 @@ class VncDarazSessionCaptureManager extends PlaywrightDarazSessionCaptureManager
       const page = context.pages()[0] ?? await context.newPage();
       const loginUrl = "https://member.daraz.lk/user/login";
       await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
+      let autoLogin: DarazAutoLoginAttempt | undefined;
       if (credentials) {
-        await this.tryStoredCredentialLogin(userId, context, credentials, captureId);
+        autoLogin = await this.tryStoredCredentialLogin(userId, context, credentials, captureId);
       }
 
       const capture = {
@@ -858,7 +890,7 @@ class VncDarazSessionCaptureManager extends PlaywrightDarazSessionCaptureManager
       };
       this.vncCaptures.set(captureId, capture);
       this.logger.info("vnc daraz browser opened", { userId, captureId, display, webPort, vncPort });
-      return { captureId, loginUrl, profilePath, storagePath: profilePath, browserUrl: this.browserUrl(token) };
+      return { captureId, loginUrl, profilePath, storagePath: profilePath, browserUrl: this.browserUrl(token), ...(autoLogin ? { autoLogin } : {}) };
     } catch (error) {
       await this.closeProcesses(processes);
       await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
@@ -1083,6 +1115,7 @@ export type DarazAutoLoginAttempt = {
   passwordFound: boolean;
   loginButtonFound: boolean;
   submitted: boolean;
+  credentialsRejected?: boolean;
   error?: string;
 };
 
@@ -1112,6 +1145,10 @@ export async function tryDarazAutoLogin(page: Page, credentials: DarazLoginCrede
     await loginButton.first().click({ timeout: 5000 });
     result.submitted = true;
     await page.waitForLoadState("domcontentloaded", { timeout: 10000 }).catch(() => undefined);
+    const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
+    if (isCredentialRejectionText(bodyText)) {
+      result.credentialsRejected = true;
+    }
     return result;
   } catch (error) {
     return {
@@ -1119,6 +1156,10 @@ export async function tryDarazAutoLogin(page: Page, credentials: DarazLoginCrede
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+function isCredentialRejectionText(text: string): boolean {
+  return /\b(?:incorrect|wrong|invalid|not\s+match|does\s+not\s+match|account\s+or\s+password|password\s+is\s+incorrect|invalid\s+(?:account|password|login))\b/i.test(text);
 }
 
 async function locatorExists(locator: ReturnType<Page["locator"]>): Promise<boolean> {

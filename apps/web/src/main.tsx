@@ -17,6 +17,17 @@ type AppUser = {
   createdAt: string;
 };
 
+type ApiKeyScope = "rest" | "mcp";
+
+type ApiKey = {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  scopes: ApiKeyScope[];
+  createdAt: string;
+  lastUsedAt?: string;
+};
+
 type DarazSearchResult = {
   id: string;
   title: string;
@@ -121,9 +132,16 @@ type DarazSessionActionResponse = {
 function App() {
   const [user, setUser] = useState<AppUser | undefined>();
   const [authChecked, setAuthChecked] = useState(false);
+  const [path, setPath] = useState(window.location.pathname);
 
   useEffect(() => {
     void refreshMe();
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   async function refreshMe() {
@@ -132,17 +150,27 @@ function App() {
     setAuthChecked(true);
   }
 
+  function navigate(pathname: string) {
+    window.history.pushState({}, "", pathname);
+    setPath(pathname);
+  }
+
   if (!authChecked) {
     return <main className="shell"><p className="empty">Loading...</p></main>;
   }
 
+  if (path === "/docs") {
+    return <DocsPage user={user} onNavigate={navigate} />;
+  }
+
   if (!user) {
-    return <LoginScreen />;
+    return <LoginScreen onNavigate={navigate} />;
   }
 
   return (
     <Dashboard
       user={user}
+      onNavigate={navigate}
       onLogout={async () => {
         await postJson("/api/auth/logout", {});
         setUser(undefined);
@@ -151,7 +179,7 @@ function App() {
   );
 }
 
-function LoginScreen() {
+function LoginScreen({ onNavigate }: { onNavigate: (path: string) => void }) {
   const authError = new URLSearchParams(window.location.search).get("auth_error");
 
   return (
@@ -160,13 +188,14 @@ function LoginScreen() {
         <h1>CartTruth</h1>
         <p>Sign in to check Daraz final prices from your own saved Daraz session.</p>
         <a className="button-link google-login" href="/api/auth/google/start">Continue with Google</a>
+        <button type="button" className="light-button full-width" onClick={() => onNavigate("/docs")}>Read API and MCP docs</button>
         {authError && <p className="attention-message">{authError}</p>}
       </section>
     </main>
   );
 }
 
-function Dashboard({ user, onLogout }: { user: AppUser; onLogout: () => Promise<void> }) {
+function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: () => Promise<void>; onNavigate: (path: string) => void }) {
   const [tab, setTab] = useState<"links" | "settings" | "admin">("links");
 
   return (
@@ -181,6 +210,7 @@ function Dashboard({ user, onLogout }: { user: AppUser; onLogout: () => Promise<
           <button type="button" className={tab === "links" ? "" : "light-button"} onClick={() => setTab("links")}>My links</button>
           <button type="button" className={tab === "settings" ? "" : "light-button"} onClick={() => setTab("settings")}>Settings</button>
           {user.role === "admin" && <button type="button" className={tab === "admin" ? "" : "light-button"} onClick={() => setTab("admin")}>Users</button>}
+          <button type="button" className="light-button" onClick={() => onNavigate("/docs")}>Docs</button>
           <button type="button" className="light-button" onClick={() => void onLogout()}>Logout</button>
         </div>
       </header>
@@ -468,7 +498,14 @@ function UserPanel() {
           <button type="button" className="primary-action" disabled={checking || links.length === 0} onClick={() => void checkAllLinks()}>
             {checking ? "Queued..." : "Check saved links"}
           </button>
-          {activeJob && <p className="job-state">{priceCheckJobLabel(activeJob)}</p>}
+          {activeJob && (
+            <>
+              <p className="job-state">{priceCheckJobLabel(activeJob)}</p>
+              {activeJob.status === "needs_user_action" && activeJob.session?.browserUrl && (
+                <a className="browser-link" href={activeJob.session.browserUrl} target="_blank" rel="noreferrer">Open remote browser</a>
+              )}
+            </>
+          )}
           {darazSession.message && <p className="attention-message">{darazSession.message}</p>}
           {message && <p className="message">{message}</p>}
         </aside>
@@ -602,8 +639,294 @@ function SettingsPanel() {
         )}
         {message && <p className="message">{message}</p>}
       </section>
+
+      <ApiKeysPanel />
     </section>
   );
+}
+
+function ApiKeysPanel() {
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [name, setName] = useState("Automation key");
+  const [restEnabled, setRestEnabled] = useState(true);
+  const [mcpEnabled, setMcpEnabled] = useState(true);
+  const [newToken, setNewToken] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  async function refresh() {
+    const response = await fetchJson<{ apiKeys: ApiKey[] }>("/api/api-keys");
+    setApiKeys(response.apiKeys);
+  }
+
+  async function createApiKey(event: React.FormEvent) {
+    event.preventDefault();
+    const scopes = selectedScopes(restEnabled, mcpEnabled);
+    if (scopes.length === 0) {
+      setMessage("Select REST, MCP, or both.");
+      return;
+    }
+    try {
+      const response = await postJson<{ apiKey: ApiKey; token: string }>("/api/api-keys", { name, scopes });
+      setNewToken(response.token);
+      setMessage("API key created. Copy it now; CartTruth will not show it again.");
+      setApiKeys((items) => [response.apiKey, ...items]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function updateApiKey(apiKey: ApiKey, input: { name: string; scopes: ApiKeyScope[] }) {
+    const response = await patchJson<{ apiKey: ApiKey }>(`/api/api-keys/${apiKey.id}`, input);
+    setApiKeys((items) => items.map((item) => item.id === apiKey.id ? response.apiKey : item));
+    setMessage("API key updated.");
+  }
+
+  async function deleteApiKey(apiKey: ApiKey) {
+    await fetchJson(`/api/api-keys/${apiKey.id}`, { method: "DELETE" });
+    setApiKeys((items) => items.filter((item) => item.id !== apiKey.id));
+    setMessage("API key deleted.");
+  }
+
+  async function copyNewToken() {
+    await navigator.clipboard.writeText(newToken);
+    setMessage("API key copied.");
+  }
+
+  return (
+    <section className="price-section api-key-panel">
+      <div className="section-title">
+        <h2>API Keys</h2>
+        <span className="status checked">{apiKeys.length}</span>
+      </div>
+      <form className="settings-form" onSubmit={(event) => void createApiKey(event)}>
+        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Key name" />
+        <div className="scope-row">
+          <label className="checkbox-row">
+            <input type="checkbox" checked={restEnabled} onChange={(event) => setRestEnabled(event.target.checked)} />
+            <span>REST</span>
+          </label>
+          <label className="checkbox-row">
+            <input type="checkbox" checked={mcpEnabled} onChange={(event) => setMcpEnabled(event.target.checked)} />
+            <span>MCP</span>
+          </label>
+        </div>
+        <button type="submit">Create key</button>
+      </form>
+      {newToken && (
+        <div className="token-box">
+          <span>{newToken}</span>
+          <button type="button" className="light-button" onClick={() => void copyNewToken()}>Copy</button>
+        </div>
+      )}
+      <div className="api-key-list">
+        {apiKeys.length === 0 ? <p className="empty">No API keys yet.</p> : apiKeys.map((apiKey) => (
+          <ApiKeyRow
+            key={apiKey.id}
+            apiKey={apiKey}
+            onSave={(input) => void updateApiKey(apiKey, input)}
+            onDelete={() => void deleteApiKey(apiKey)}
+          />
+        ))}
+      </div>
+      {message && <p className="message">{message}</p>}
+    </section>
+  );
+}
+
+function ApiKeyRow({ apiKey, onSave, onDelete }: {
+  apiKey: ApiKey;
+  onSave: (input: { name: string; scopes: ApiKeyScope[] }) => void;
+  onDelete: () => void;
+}) {
+  const [name, setName] = useState(apiKey.name);
+  const [restEnabled, setRestEnabled] = useState(apiKey.scopes.includes("rest"));
+  const [mcpEnabled, setMcpEnabled] = useState(apiKey.scopes.includes("mcp"));
+  const scopes = selectedScopes(restEnabled, mcpEnabled);
+
+  useEffect(() => {
+    setName(apiKey.name);
+    setRestEnabled(apiKey.scopes.includes("rest"));
+    setMcpEnabled(apiKey.scopes.includes("mcp"));
+  }, [apiKey]);
+
+  return (
+    <div className="api-key-row">
+      <div>
+        <input value={name} onChange={(event) => setName(event.target.value)} aria-label="API key name" />
+        <p>
+          <span>{apiKey.tokenPrefix}...</span>
+          <span>Created {new Date(apiKey.createdAt).toLocaleDateString()}</span>
+          <span>Last used {apiKey.lastUsedAt ? new Date(apiKey.lastUsedAt).toLocaleString() : "never"}</span>
+        </p>
+      </div>
+      <div className="scope-row">
+        <label className="checkbox-row">
+          <input type="checkbox" checked={restEnabled} onChange={(event) => setRestEnabled(event.target.checked)} />
+          <span>REST</span>
+        </label>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={mcpEnabled} onChange={(event) => setMcpEnabled(event.target.checked)} />
+          <span>MCP</span>
+        </label>
+      </div>
+      <div className="api-key-actions">
+        <button type="button" className="light-button" disabled={!name.trim() || scopes.length === 0} onClick={() => onSave({ name: name.trim(), scopes })}>Save</button>
+        <button type="button" className="text-button" onClick={onDelete}>Delete</button>
+      </div>
+    </div>
+  );
+}
+
+function selectedScopes(restEnabled: boolean, mcpEnabled: boolean): ApiKeyScope[] {
+  return [
+    ...(restEnabled ? ["rest" as const] : []),
+    ...(mcpEnabled ? ["mcp" as const] : [])
+  ];
+}
+
+function DocsPage({ user, onNavigate }: { user?: AppUser; onNavigate: (path: string) => void }) {
+  const baseUrl = window.location.origin;
+  const apiKey = "ct_your_api_key";
+
+  return (
+    <main className="shell docs-shell">
+      <header className="hero">
+        <div>
+          <p className="eyebrow">CartTruth developer docs</p>
+          <h1>REST API and MCP</h1>
+          <p>Automate saved links, settings, queued checks, jobs, and run history with scoped API keys.</p>
+        </div>
+        <div className="button-row">
+          {user ? (
+            <button type="button" onClick={() => onNavigate("/")}>Dashboard</button>
+          ) : (
+            <a className="button-link" href="/api/auth/google/start">Sign in</a>
+          )}
+        </div>
+      </header>
+
+      <section className="docs-layout">
+        <aside className="docs-nav">
+          <a href="#quickstart">Quickstart</a>
+          <a href="#rest">REST API</a>
+          <a href="#mcp">MCP</a>
+          <a href="#security">Security</a>
+        </aside>
+
+        <article className="docs-content">
+          <section id="quickstart">
+            <h2>Quickstart</h2>
+            <p>Create a key from Settings after signing in. Choose REST, MCP, or both. Copy the token immediately; only its prefix is shown later.</p>
+            <CodeBlock code={`export CARTTRUTH_API_KEY=${apiKey}
+curl ${baseUrl}/api/v1/links \\
+  -H "Authorization: Bearer $CARTTRUTH_API_KEY"`} />
+          </section>
+
+          <section id="rest">
+            <h2>REST API</h2>
+            <p>REST endpoints live under <code>/api/v1</code> and use bearer authentication. Responses are JSON. Task-creating calls return queued jobs that can be polled.</p>
+            <div className="endpoint-list">
+              <span>GET /api/v1/me</span>
+              <span>GET /api/v1/links</span>
+              <span>POST /api/v1/links</span>
+              <span>DELETE /api/v1/links/:linkId</span>
+              <span>GET /api/v1/settings</span>
+              <span>PATCH /api/v1/settings</span>
+              <span>POST /api/v1/links/check-jobs</span>
+              <span>GET /api/v1/price-check-jobs</span>
+              <span>GET /api/v1/price-check-jobs/:jobId</span>
+              <span>GET /api/v1/runs</span>
+              <span>GET /api/v1/runs/:runId</span>
+            </div>
+            <h3>Add a link and queue a check</h3>
+            <CodeBlock code={`curl ${baseUrl}/api/v1/links \\
+  -H "Authorization: Bearer $CARTTRUTH_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"url":"https://www.daraz.lk/products/example.html"}'`} />
+            <h3>Poll a job</h3>
+            <CodeBlock code={`const apiKey = process.env.CARTTRUTH_API_KEY;
+
+async function carttruth(path, init = {}) {
+  const response = await fetch("${baseUrl}/api/v1" + path, {
+    ...init,
+    headers: {
+      authorization: \`Bearer \${apiKey}\`,
+      "content-type": "application/json",
+      ...(init.headers || {})
+    }
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+const { job } = await carttruth("/links/check-jobs", {
+  method: "POST",
+  body: JSON.stringify({})
+});
+const latest = await carttruth(\`/price-check-jobs/\${job.id}\`);`} />
+          </section>
+
+          <section id="mcp">
+            <h2>MCP</h2>
+            <p>The MCP endpoint is <code>{baseUrl}/mcp</code>. Keys must include the MCP scope. Available tools mirror the REST automation surface.</p>
+            <h3>Codex</h3>
+            <CodeBlock code={`# ~/.codex/config.toml
+[mcp_servers.carttruth]
+url = "${baseUrl}/mcp"
+bearer_token_env_var = "CARTTRUTH_API_KEY"`} />
+            <h3>Cursor</h3>
+            <CodeBlock code={`{
+  "mcpServers": {
+    "carttruth": {
+      "url": "${baseUrl}/mcp",
+      "headers": {
+        "Authorization": "Bearer \${env:CARTTRUTH_API_KEY}"
+      }
+    }
+  }
+}`} />
+            <h3>Claude Code</h3>
+            <CodeBlock code={`claude mcp add --transport http carttruth ${baseUrl}/mcp \\
+  --header "Authorization: Bearer $CARTTRUTH_API_KEY"`} />
+            <h3>VS Code</h3>
+            <CodeBlock code={`{
+  "inputs": [
+    {
+      "id": "carttruth-api-key",
+      "type": "promptString",
+      "description": "CartTruth API key",
+      "password": true
+    }
+  ],
+  "servers": {
+    "carttruth": {
+      "type": "http",
+      "url": "${baseUrl}/mcp",
+      "headers": {
+        "Authorization": "Bearer \${input:carttruth-api-key}"
+      }
+    }
+  }
+}`} />
+          </section>
+
+          <section id="security">
+            <h2>Security</h2>
+            <p>Use the narrowest surface scope that works, keep tokens in environment variables or secret managers, rotate keys that may have been exposed, and delete unused keys. Rate limits return <code>429</code> with <code>Retry-After</code> and <code>x-ratelimit-*</code> headers.</p>
+            <p>API and MCP clients cannot save Daraz credentials or control the remote browser. If a job needs login, OTP, captcha, or verification, finish that step in the CartTruth web dashboard and retry the check.</p>
+          </section>
+        </article>
+      </section>
+    </main>
+  );
+}
+
+function CodeBlock({ code }: { code: string }) {
+  return <pre><code>{code}</code></pre>;
 }
 
 function PriceTable({ result }: { result: DarazCheckResult }) {
