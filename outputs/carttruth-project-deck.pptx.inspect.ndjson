@@ -1,0 +1,273 @@
+{"kind":"deck","id":"pr/60ioun","name":"Deck"}
+{"kind":"layout","layoutId":"6c773a57-1744-4beb-ae1b-fc771d25b45a","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"ad1f34b3-3a3a-49ec-90f0-09277380cea4","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/1qa7zv","slide":1,"title":"CartTruth","textShapes":8}
+{"kind":"shape","id":"sh/wfyxobm5","slide":1,"bbox":[42,36,120,12]}
+{"kind":"textbox","id":"sh/7u54zido","slide":1,"text":"CartTruth","textPreview":"CartTruth","textChars":9,"textLines":1,"bbox":[42,152,720,96]}
+{"kind":"textbox","id":"sh/ed8bat47","slide":1,"text":"Checkout price verification for marketplaces, sellers, and commerce teams.","textPreview":"Checkout price verification for marketplaces, sellers, and commerce teams.","textChars":74,"textLines":1,"bbox":[47,275,604,86]}
+{"kind":"shape","id":"sh/lc7u54zi","slide":1,"bbox":[866,88,330,460]}
+{"kind":"textbox","id":"sh/wra5gbq1","slide":1,"text":"shown price","textPreview":"shown price","textChars":11,"textLines":1,"bbox":[900,135,250,32]}
+{"kind":"textbox","id":"sh/36hcrmhk","slide":1,"text":"fees","textPreview":"fees","textChars":4,"textLines":1,"bbox":[900,205,250,52]}
+{"kind":"textbox","id":"sh/eloj2t83","slide":1,"text":"vouchers","textPreview":"vouchers","textChars":8,"textLines":1,"bbox":[900,300,250,44]}
+{"kind":"textbox","id":"sh/pg3ex0nu","slide":1,"text":"checkout total","textPreview":"checkout total","textChars":14,"textLines":1,"bbox":[900,395,250,52]}
+{"kind":"shape","id":"sh/wval87ed","slide":1,"bbox":[866,556,330,9]}
+{"kind":"textbox","id":"sh/6hcrmhk3","slide":1,"text":"Project deck | July 2026","textPreview":"Project deck | July 2026","textChars":24,"textLines":1,"bbox":[42,660,520,24]}
+{"kind":"textbox","id":"sh/z25kb6xk","slide":1,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[1184,660,54,24]}
+{"kind":"notes","id":"nt/1qa7zv","slide":1,"text":""}
+{"kind":"slide","id":"sl/t5h4cq","slide":2,"title":"The checkout total is where ecommerce trust breaks","textShapes":17}
+{"kind":"textbox","id":"sh/3m94fu18","slide":2,"text":"The checkout total is where ecommerce trust breaks","textPreview":"The checkout total is where ecommerce trust breaks","textChars":50,"textLines":1,"bbox":[42,36,760,92]}
+{"kind":"textbox","id":"sh/s72x4nap","slide":2,"text":"CartTruth project deck","textPreview":"CartTruth project deck","textChars":22,"textLines":1,"bbox":[42,660,500,24]}
+{"kind":"textbox","id":"sh/lszqtcj6","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[1184,660,54,24]}
+{"kind":"textbox","id":"sh/adsji5sn","slide":2,"text":"Product pages show the promise. Checkout reveals the real price.","textPreview":"Product pages show the promise. Checkout reveals the real price.","textChars":64,"textLines":1,"bbox":[42,162,560,66]}
+{"kind":"shape","id":"sh/3ylc7u54","slide":2,"bbox":[42,273,340,154]}
+{"kind":"textbox","id":"sh/sji5snel","slide":2,"text":"Price drift","textPreview":"Price drift","textChars":11,"textLines":1,"bbox":[60,289,304,32]}
+{"kind":"textbox","id":"sh/h4byhgn2","slide":2,"text":"Delivery, platform fees, service fees, tax, vouchers, and quantity rules can change the final amount.","textPreview":"Delivery, platform fees, service fees, tax, vouchers, and quantity rules can change the final amount.","textChars":101,"textLines":1,"bbox":[60,331,304,76]}
+{"kind":"shape","id":"sh/ap4r65wj","slide":2,"bbox":[422,273,340,154]}
+{"kind":"textbox","id":"sh/za1gvy90","slide":2,"text":"Operational risk","textPreview":"Operational risk","textChars":16,"textLines":1,"bbox":[440,289,304,32]}
+{"kind":"textbox","id":"sh/z61032ls","slide":2,"text":"Support teams need evidence when shoppers, sellers, and marketplaces disagree about the total.","textPreview":"Support teams need evidence when shoppers, sellers, and marketplaces disagree about the total.","textChars":94,"textLines":1,"bbox":[440,331,304,76]}
+{"kind":"shape","id":"sh/al87ed8b","slide":2,"bbox":[802,273,340,154]}
+{"kind":"textbox","id":"sh/hcrmhk3q","slide":2,"text":"Automation gap","textPreview":"Automation gap","textChars":14,"textLines":1,"bbox":[820,289,304,32]}
+{"kind":"textbox","id":"sh/orytsvu9","slide":2,"text":"Existing systems often know catalog prices, but not what a real account sees at checkout.","textPreview":"Existing systems often know catalog prices, but not what a real account sees at checkout.","textChars":89,"textLines":1,"bbox":[820,331,304,76]}
+{"kind":"shape","id":"sh/zupwb2hw","slide":2,"bbox":[42,470,340,120]}
+{"kind":"textbox","id":"sh/a9w3m94f","slide":2,"text":"40%","textPreview":"40%","textChars":3,"textLines":1,"bbox":[72,499,120,54]}
+{"kind":"textbox","id":"sh/h0fepkzu","slide":2,"text":"abandoned because extra checkout costs were too high","textPreview":"abandoned because extra checkout costs were too high","textChars":52,"textLines":1,"bbox":[204,498,146,66]}
+{"kind":"shape","id":"sh/sfil0rqd","slide":2,"bbox":[422,470,340,120]}
+{"kind":"textbox","id":"sh/zqtcj6to","slide":2,"text":"64%","textPreview":"64%","textChars":3,"textLines":1,"bbox":[452,499,120,54]}
+{"kind":"textbox","id":"sh/65wjudg7","slide":2,"text":"top ecommerce checkouts performed mediocre or worse","textPreview":"top ecommerce checkouts performed mediocre or worse","textChars":51,"textLines":1,"bbox":[584,498,146,66]}
+{"kind":"shape","id":"sh/ed8bat47","slide":2,"bbox":[802,470,340,120]}
+{"kind":"textbox","id":"sh/7u54zido","slide":2,"text":"1","textPreview":"1","textChars":1,"textLines":1,"bbox":[832,499,120,54]}
+{"kind":"textbox","id":"sh/wfyxobm5","slide":2,"text":"source of truth: the final payable total customers remember","textPreview":"source of truth: the final payable total customers remember","textChars":59,"textLines":1,"bbox":[964,498,146,66]}
+{"kind":"textbox","id":"sh/l0rqd4vm","slide":2,"text":"Sources: Baymard UX statistics and Checkout UX benchmark; CartTruth product analysis.","textPreview":"Sources: Baymard UX statistics and Checkout UX benchmark; CartTruth product analysis.","textChars":85,"textLines":1,"bbox":[42,624,1010,26]}
+{"kind":"notes","id":"nt/t5h4cq","slide":2,"text":""}
+{"kind":"slide","id":"sl/4ijtbl","slide":3,"title":"CartTruth already proves the Daraz workflow end to end","textShapes":15}
+{"kind":"textbox","id":"sh/zed8v6ps","slide":3,"text":"CartTruth already proves the Daraz workflow end to end","textPreview":"CartTruth already proves the Daraz workflow end to end","textChars":54,"textLines":1,"bbox":[42,36,760,92]}
+{"kind":"textbox","id":"sh/oza1gvy9","slide":3,"text":"Current product surface, based on the local web app.","textPreview":"Current product surface, based on the local web app.","textChars":52,"textLines":1,"bbox":[842,45,396,86]}
+{"kind":"textbox","id":"sh/hk3q5o7q","slide":3,"text":"CartTruth project deck","textPreview":"CartTruth project deck","textChars":22,"textLines":1,"bbox":[42,660,500,24]}
+{"kind":"textbox","id":"sh/65wjudg7","slide":3,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[1184,660,54,24]}
+{"kind":"shape","id":"sh/obm58z25","slide":3,"bbox":[722,168,474,398]}
+{"kind":"textbox","id":"sh/hwfyxobm","slide":3,"text":"Search or paste","textPreview":"Search or paste","textChars":15,"textLines":1,"bbox":[752,190,156,27]}
+{"kind":"textbox","id":"sh/a9w3m94f","slide":3,"text":"Find Daraz products through search or a direct product link.","textPreview":"Find Daraz products through search or a direct product link.","textChars":60,"textLines":1,"bbox":[920,190,240,47]}
+{"kind":"textbox","id":"sh/zupwb2hw","slide":3,"text":"Select quantities","textPreview":"Select quantities","textChars":17,"textLines":1,"bbox":[752,262,156,27]}
+{"kind":"textbox","id":"sh/7y1kre1w","slide":3,"text":"Build a selected product list and recalculate product-page prices.","textPreview":"Build a selected product list and recalculate product-page prices.","textChars":66,"textLines":1,"bbox":[920,262,240,47]}
+{"kind":"textbox","id":"sh/ed8v6psf","slide":3,"text":"Save login","textPreview":"Save login","textChars":10,"textLines":1,"bbox":[752,334,156,27]}
+{"kind":"textbox","id":"sh/p4r65wju","slide":3,"text":"Use an inbuilt Daraz browser so checkout sees the same account session.","textPreview":"Use an inbuilt Daraz browser so checkout sees the same account session.","textChars":71,"textLines":1,"bbox":[920,334,240,47]}
+{"kind":"textbox","id":"sh/wjudg7ad","slide":3,"text":"Read checkout","textPreview":"Read checkout","textChars":13,"textLines":1,"bbox":[752,406,156,27]}
+{"kind":"textbox","id":"sh/7qpg3ex0","slide":3,"text":"Capture product price, line price, delivery, platform fee, vouchers, and total.","textPreview":"Capture product price, line price, delivery, platform fee, vouchers, and total.","textChars":79,"textLines":1,"bbox":[920,406,240,47]}
+{"kind":"textbox","id":"sh/i5sneloj","slide":3,"text":"Keep evidence","textPreview":"Keep evidence","textChars":13,"textLines":1,"bbox":[752,478,156,27]}
+{"kind":"textbox","id":"sh/pwb2hwfy","slide":3,"text":"Store screenshots, JSON extraction data, run history, and artifact links.","textPreview":"Store screenshots, JSON extraction data, run history, and artifact links.","textChars":73,"textLines":1,"bbox":[920,478,240,47]}
+{"kind":"textbox","id":"sh/0bi9s36h","slide":3,"text":"Source: CartTruth repository and local app state inspected July 7, 2026.","textPreview":"Source: CartTruth repository and local app state inspected July 7, 2026.","textChars":72,"textLines":1,"bbox":[42,624,1010,26]}
+{"kind":"image","id":"im/qh0fepkz","slide":3,"name":"","alt":"CartTruth Daraz Price Checker web interface with latest checkout result","bbox":[42,168,645,398]}
+{"kind":"notes","id":"nt/4ijtbl","slide":3,"text":""}
+{"kind":"slide","id":"sl/7xe7zj","slide":4,"title":"The product acts like a careful buyer, then stops before purchase","textShapes":22}
+{"kind":"textbox","id":"sh/rytsvu9k","slide":4,"text":"The product acts like a careful buyer, then stops before purchase","textPreview":"The product acts like a careful buyer, then stops before purchase","textChars":65,"textLines":1,"bbox":[42,36,760,92]}
+{"kind":"textbox","id":"sh/gfmlkjm1","slide":4,"text":"CartTruth project deck","textPreview":"CartTruth project deck","textChars":22,"textLines":1,"bbox":[42,660,500,24]}
+{"kind":"textbox","id":"sh/90je9cvi","slide":4,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[1184,660,54,24]}
+{"kind":"shape","id":"sh/y1kre1w7","slide":4,"bbox":[42,158,360,116]}
+{"kind":"shape","id":"sh/rmhk3q5o","slide":4,"bbox":[42,158,42,116]}
+{"kind":"textbox","id":"sh/g7adsji5","slide":4,"text":"1","textPreview":"1","textChars":1,"textLines":1,"bbox":[52,176,24,38]}
+{"kind":"textbox","id":"sh/9s36hcrm","slide":4,"text":"Input","textPreview":"Input","textChars":5,"textLines":1,"bbox":[104,174,278,32]}
+{"kind":"textbox","id":"sh/yxobm58z","slide":4,"text":"A user searches Daraz or pastes a product URL, then selects products and quantities.","textPreview":"A user searches Daraz or pastes a product URL, then selects products and quantities.","textChars":84,"textLines":1,"bbox":[104,214,278,44]}
+{"kind":"shape","id":"sh/nih4byhg","slide":4,"bbox":[460,158,360,116]}
+{"kind":"shape","id":"sh/72x4nap4","slide":4,"bbox":[460,158,42,116]}
+{"kind":"textbox","id":"sh/ih4byhgn","slide":4,"text":"2","textPreview":"2","textChars":1,"textLines":1,"bbox":[470,176,24,38]}
+{"kind":"textbox","id":"sh/p8nqxs72","slide":4,"text":"Session","textPreview":"Session","textChars":7,"textLines":1,"bbox":[522,174,278,32]}
+{"kind":"textbox","id":"sh/0nuxc3yl","slide":4,"text":"The inbuilt browser captures and validates a saved Daraz login profile.","textPreview":"The inbuilt browser captures and validates a saved Daraz login profile.","textChars":71,"textLines":1,"bbox":[522,214,278,44]}
+{"kind":"shape","id":"sh/7ed8bat4","slide":4,"bbox":[878,158,360,116]}
+{"kind":"shape","id":"sh/itgfmlkj","slide":4,"bbox":[878,158,42,116]}
+{"kind":"textbox","id":"sh/pkzupwb2","slide":4,"text":"3","textPreview":"3","textChars":1,"textLines":1,"bbox":[888,176,24,38]}
+{"kind":"textbox","id":"sh/0z61032l","slide":4,"text":"Product read","textPreview":"Product read","textChars":12,"textLines":1,"bbox":[940,174,278,32]}
+{"kind":"textbox","id":"sh/7qpg3ex0","slide":4,"text":"Playwright opens each product page and records the observed product-page price.","textPreview":"Playwright opens each product page and records the observed product-page price.","textChars":79,"textLines":1,"bbox":[940,214,278,44]}
+{"kind":"shape","id":"sh/i5sneloj","slide":4,"bbox":[42,344,360,116]}
+{"kind":"shape","id":"sh/m94fu18j","slide":4,"bbox":[42,344,42,116]}
+{"kind":"textbox","id":"sh/fu18jqh0","slide":4,"text":"4","textPreview":"4","textChars":1,"textLines":1,"bbox":[52,362,24,38]}
+{"kind":"textbox","id":"sh/4fu18jqh","slide":4,"text":"Cart isolation","textPreview":"Cart isolation","textChars":14,"textLines":1,"bbox":[104,360,278,32]}
+{"kind":"textbox","id":"sh/x0nuxc3y","slide":4,"text":"The app navigates to cart, selects only requested products, and adjusts quantities.","textPreview":"The app navigates to cart, selects only requested products, and adjusts quantities.","textChars":83,"textLines":1,"bbox":[104,400,278,44]}
+{"kind":"shape","id":"sh/qxs72x4n","slide":4,"bbox":[460,344,360,116]}
+{"kind":"shape","id":"sh/fil0rqd4","slide":4,"bbox":[460,344,42,116]}
+{"kind":"textbox","id":"sh/83itgfml","slide":4,"text":"5","textPreview":"5","textChars":1,"textLines":1,"bbox":[470,362,24,38]}
+{"kind":"textbox","id":"sh/xobm58z2","slide":4,"text":"Checkout extraction","textPreview":"Checkout extraction","textChars":19,"textLines":1,"bbox":[522,360,278,32]}
+{"kind":"textbox","id":"sh/mtwra5gb","slide":4,"text":"It loads checkout, parses line prices, fees, vouchers, delivery, and order total.","textPreview":"It loads checkout, parses line prices, fees, vouchers, delivery, and order total.","textChars":81,"textLines":1,"bbox":[522,400,278,44]}
+{"kind":"shape","id":"sh/fepkzupw","slide":4,"bbox":[878,344,360,116]}
+{"kind":"shape","id":"sh/5gbq1ory","slide":4,"bbox":[878,344,42,116]}
+{"kind":"textbox","id":"sh/cvixczed","slide":4,"text":"6","textPreview":"6","textChars":1,"textLines":1,"bbox":[888,362,24,38]}
+{"kind":"textbox","id":"sh/nap4r65w","slide":4,"text":"Evidence","textPreview":"Evidence","textChars":8,"textLines":1,"bbox":[940,360,278,32]}
+{"kind":"textbox","id":"sh/upwb2hwf","slide":4,"text":"The result writes JSON and screenshots so humans or systems can review the finding.","textPreview":"The result writes JSON and screenshots so humans or systems can review the finding.","textChars":83,"textLines":1,"bbox":[940,400,278,44]}
+{"kind":"shape","id":"sh/54zidony","slide":4,"bbox":[42,520,1196,50]}
+{"kind":"textbox","id":"sh/cj6tovah","slide":4,"text":"Guardrail: CartTruth blocks order-finalization requests and never submits payment or purchase actions.","textPreview":"Guardrail: CartTruth blocks order-finalization requests and never submits payment or purchase actions.","textChars":102,"textLines":1,"bbox":[66,533,1110,25]}
+{"kind":"notes","id":"nt/7xe7zj","slide":4,"text":""}
+{"kind":"slide","id":"sl/38bnd6","slide":5,"title":"Safety and evidence make the result usable, not just scraped","textShapes":13}
+{"kind":"textbox","id":"sh/lszqtcj6","slide":5,"text":"Safety and evidence make the result usable, not just scraped","textPreview":"Safety and evidence make the result usable, not just scraped","textChars":60,"textLines":1,"bbox":[42,36,760,92]}
+{"kind":"textbox","id":"sh/a5gbq1or","slide":5,"text":"CartTruth project deck","textPreview":"CartTruth project deck","textChars":22,"textLines":1,"bbox":[42,660,500,24]}
+{"kind":"textbox","id":"sh/3m94fu18","slide":5,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[1184,660,54,24]}
+{"kind":"shape","id":"sh/sji5snel","slide":5,"bbox":[42,172,540,142]}
+{"kind":"textbox","id":"sh/h4byhgn2","slide":5,"text":"Never-purchase guard","textPreview":"Never-purchase guard","textChars":20,"textLines":1,"bbox":[60,188,504,32]}
+{"kind":"textbox","id":"sh/adsji5sn","slide":5,"text":"Network routes abort order/payment/finalization requests. Unsafe purchase button labels are refused before click.","textPreview":"Network routes abort order/payment/finalization requests. Unsafe purchase button labels are refused before click.","textChars":113,"textLines":1,"bbox":[60,230,504,64]}
+{"kind":"shape","id":"sh/3ylc7u54","slide":5,"bbox":[658,172,540,142]}
+{"kind":"textbox","id":"sh/svu9knih","slide":5,"text":"Session status","textPreview":"Session status","textChars":14,"textLines":1,"bbox":[676,188,504,32]}
+{"kind":"textbox","id":"sh/hgn29gr2","slide":5,"text":"The app reports missing, saved, needs-login, needs-verification, unknown, and live browser states.","textPreview":"The app reports missing, saved, needs-login, needs-verification, unknown, and live browser states.","textChars":98,"textLines":1,"bbox":[676,230,504,64]}
+{"kind":"shape","id":"sh/tgfmlkjm","slide":5,"bbox":[42,366,540,142]}
+{"kind":"textbox","id":"sh/4vmtwra5","slide":5,"text":"Blocker classification","textPreview":"Blocker classification","textChars":22,"textLines":1,"bbox":[60,382,504,32]}
+{"kind":"textbox","id":"sh/bat47y1k","slide":5,"text":"CAPTCHA, blocked traffic, login requirements, unavailable products, and manual attention become explicit statuses.","textPreview":"CAPTCHA, blocked traffic, login requirements, unavailable products, and manual attention become explicit statuses.","textChars":114,"textLines":1,"bbox":[60,424,504,64]}
+{"kind":"shape","id":"sh/mp0bi9s3","slide":5,"bbox":[658,366,540,142]}
+{"kind":"textbox","id":"sh/tsvu9kni","slide":5,"text":"Audit trail","textPreview":"Audit trail","textChars":11,"textLines":1,"bbox":[676,382,504,32]}
+{"kind":"textbox","id":"sh/47y1kre1","slide":5,"text":"Each run writes selected products, extraction data, screenshots, final result JSON, and redacted artifacts.","textPreview":"Each run writes selected products, extraction data, screenshots, final result JSON, and redacted artifacts.","textChars":107,"textLines":1,"bbox":[676,424,504,64]}
+{"kind":"textbox","id":"sh/bm58z25k","slide":5,"text":"This is the difference between screen scraping and a verification workflow that a support, QA, or platform team can trust.","textPreview":"This is the difference between screen scraping and a verification workflow that a support, QA, or platform team can trust.","textChars":122,"textLines":1,"bbox":[42,554,880,44]}
+{"kind":"textbox","id":"sh/m1cfa9w3","slide":5,"text":"Source: CartTruth core safety, redaction, evidence, and Daraz service modules inspected July 7, 2026.","textPreview":"Source: CartTruth core safety, redaction, evidence, and Daraz service modules inspected July 7, 2026.","textChars":101,"textLines":1,"bbox":[42,624,1010,26]}
+{"kind":"notes","id":"nt/38bnd6","slide":5,"text":""}
+{"kind":"slide","id":"sl/b8ga28","slide":6,"title":"The codebase is already shaped like a multi-retailer platform","textShapes":14}
+{"kind":"textbox","id":"sh/u18jqh0f","slide":6,"text":"The codebase is already shaped like a multi-retailer platform","textPreview":"The codebase is already shaped like a multi-retailer platform","textChars":61,"textLines":1,"bbox":[42,36,760,92]}
+{"kind":"textbox","id":"sh/1orytsvu","slide":6,"text":"CartTruth project deck","textPreview":"CartTruth project deck","textChars":22,"textLines":1,"bbox":[42,660,500,24]}
+{"kind":"textbox","id":"sh/c7u54zid","slide":6,"text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[1184,660,54,24]}
+{"kind":"shape","id":"sh/judg7ads","slide":6,"bbox":[42,165,218,330]}
+{"kind":"shape","id":"sh/u9knih4b","slide":6,"bbox":[42,165,218,8]}
+{"kind":"textbox","id":"sh/1032lszq","slide":6,"text":"Experience","textPreview":"Experience","textChars":10,"textLines":1,"bbox":[60,196,180,36]}
+{"kind":"textbox","id":"sh/cfa9w3m9","slide":6,"text":"React web app\nCLI runner\nLocal API server","textPreview":"React web app | CLI runner | Local API server","textChars":41,"textLines":3,"bbox":[60,260,178,164]}
+{"kind":"shape","id":"sh/nyd0z610","slide":6,"bbox":[286,165,218,330]}
+{"kind":"shape","id":"sh/udg7adsj","slide":6,"bbox":[286,165,218,8]}
+{"kind":"textbox","id":"sh/czed8v6p","slide":6,"text":"Contracts","textPreview":"Contracts","textChars":9,"textLines":1,"bbox":[304,196,180,36]}
+{"kind":"textbox","id":"sh/5kb6xkf6","slide":6,"text":"Zod request/result schemas\nMoney and comparison helpers\nStatus and failure taxonomy","textPreview":"Zod request/result schemas | Money and comparison helpers | Status and failure taxonomy","textChars":83,"textLines":3,"bbox":[304,260,178,164]}
+{"kind":"shape","id":"sh/ytsvu9kn","slide":6,"bbox":[530,165,218,330]}
+{"kind":"shape","id":"sh/neloj2t8","slide":6,"bbox":[530,165,218,8]}
+{"kind":"textbox","id":"sh/cbulwval","slide":6,"text":"Execution","textPreview":"Execution","textChars":9,"textLines":1,"bbox":[548,196,180,36]}
+{"kind":"textbox","id":"sh/5sneloj2","slide":6,"text":"Playwright flows\nSession capture\nProxy provider interface\nNever-purchase safety","textPreview":"Playwright flows | Session capture | Proxy provider interface | Never-purchase safety","textChars":79,"textLines":4,"bbox":[548,260,178,164]}
+{"kind":"shape","id":"sh/u54zidon","slide":6,"bbox":[774,165,218,330]}
+{"kind":"shape","id":"sh/nqxs72x4","slide":6,"bbox":[774,165,218,8]}
+{"kind":"textbox","id":"sh/gbq1oryt","slide":6,"text":"Adapters","textPreview":"Adapters","textChars":8,"textLines":1,"bbox":[792,196,180,36]}
+{"kind":"textbox","id":"sh/5wjudg7a","slide":6,"text":"Daraz service for LK flow\nWalmart adapter\nTarget and BestBuy scaffolds\nMock adapter for tests","textPreview":"Daraz service for LK flow | Walmart adapter | Target and BestBuy scaffolds | Mock adapter for tests","textChars":93,"textLines":4,"bbox":[792,260,178,164]}
+{"kind":"shape","id":"sh/t47y1kre","slide":6,"bbox":[1018,165,218,330]}
+{"kind":"shape","id":"sh/0je9cvix","slide":6,"bbox":[1018,165,218,8]}
+{"kind":"textbox","id":"sh/byhgn29g","slide":6,"text":"Evidence","textPreview":"Evidence","textChars":8,"textLines":1,"bbox":[1036,196,180,36]}
+{"kind":"textbox","id":"sh/idonyd0z","slide":6,"text":"Run directories\nScreenshots\nJSON reports\nArtifact endpoints","textPreview":"Run directories | Screenshots | JSON reports | Artifact endpoints","textChars":59,"textLines":4,"bbox":[1036,260,178,164]}
+{"kind":"shape","id":"sh/tcj6tova","slide":6,"bbox":[42,535,1196,42]}
+{"kind":"textbox","id":"sh/0rqd4vmt","slide":6,"text":"Design implication: REST and MCP do not require a rewrite. They expose the same runner, schemas, adapters, and evidence model through new contracts.","textPreview":"Design implication: REST and MCP do not require a rewrite. They expose the same runner, schemas, adapters, and evidence model through new...","textChars":148,"textLines":1,"bbox":[62,546,1120,22]}
+{"kind":"notes","id":"nt/b8ga28","slide":6,"text":""}
+{"kind":"slide","id":"sl/i8nqfv","slide":7,"title":"The market is large because checkout accuracy touches every online order","textShapes":19}
+{"kind":"textbox","id":"sh/qd4vmtwr","slide":7,"text":"The market is large because checkout accuracy touches every online order","textPreview":"The market is large because checkout accuracy touches every online order","textChars":72,"textLines":1,"bbox":[42,36,760,92]}
+{"kind":"textbox","id":"sh/x4nap4r6","slide":7,"text":"CartTruth project deck","textPreview":"CartTruth project deck","textChars":22,"textLines":1,"bbox":[42,660,500,24]}
+{"kind":"textbox","id":"sh/8jqh0fep","slide":7,"text":"07","textPreview":"07","textChars":2,"textLines":1,"bbox":[1184,660,54,24]}
+{"kind":"shape","id":"sh/fa9w3m94","slide":7,"bbox":[42,164,271,252]}
+{"kind":"textbox","id":"sh/qpg3ex0n","slide":7,"text":"$28T","textPreview":"$28T","textChars":4,"textLines":1,"bbox":[62,188,231,70]}
+{"kind":"textbox","id":"sh/xczed8v6","slide":7,"text":"business ecommerce sales across 45 economies in 2024","textPreview":"business ecommerce sales across 45 economies in 2024","textChars":52,"textLines":1,"bbox":[64,270,227,74]}
+{"kind":"textbox","id":"sh/8v6psfil","slide":7,"text":"UNCTAD","textPreview":"UNCTAD","textChars":6,"textLines":1,"bbox":[64,372,227,24]}
+{"kind":"shape","id":"sh/je9cvixc","slide":7,"bbox":[352,164,271,252]}
+{"kind":"textbox","id":"sh/qtcj6tov","slide":7,"text":"$3.88T","textPreview":"$3.88T","textChars":6,"textLines":1,"bbox":[372,188,231,70]}
+{"kind":"textbox","id":"sh/svu9knih","slide":7,"text":"global consumer ecommerce revenue forecast for 2026","textPreview":"global consumer ecommerce revenue forecast for 2026","textChars":51,"textLines":1,"bbox":[374,270,227,74]}
+{"kind":"textbox","id":"sh/hgn29gr2","slide":7,"text":"Statista","textPreview":"Statista","textChars":8,"textLines":1,"bbox":[374,372,227,24]}
+{"kind":"shape","id":"sh/ap4r65wj","slide":7,"bbox":[662,164,271,252]}
+{"kind":"textbox","id":"sh/za1gvy90","slide":7,"text":"$3.0B","textPreview":"$3.0B","textChars":5,"textLines":1,"bbox":[682,188,231,70]}
+{"kind":"textbox","id":"sh/s36hcrmh","slide":7,"text":"Sri Lanka ecommerce revenue projected by 2028","textPreview":"Sri Lanka ecommerce revenue projected by 2028","textChars":45,"textLines":1,"bbox":[684,270,227,74]}
+{"kind":"textbox","id":"sh/hoza1gvy","slide":7,"text":"ECDB via The Morning","textPreview":"ECDB via The Morning","textChars":20,"textLines":1,"bbox":[684,372,227,24]}
+{"kind":"shape","id":"sh/a1gvy90j","slide":7,"bbox":[972,164,226,252]}
+{"kind":"textbox","id":"sh/zidonyd0","slide":7,"text":"40%","textPreview":"40%","textChars":3,"textLines":1,"bbox":[992,188,186,70]}
+{"kind":"textbox","id":"sh/s72x4nap","slide":7,"text":"checkout abandonment tied to extra costs","textPreview":"checkout abandonment tied to extra costs","textChars":40,"textLines":1,"bbox":[994,270,182,74]}
+{"kind":"textbox","id":"sh/lszqtcj6","slide":7,"text":"Baymard","textPreview":"Baymard","textChars":7,"textLines":1,"bbox":[994,372,182,24]}
+{"kind":"textbox","id":"sh/pg3ex0nu","slide":7,"text":"CartTruth does not need to own checkout or payments. It can sit in the verification layer that protects price accuracy before money moves.","textPreview":"CartTruth does not need to own checkout or payments. It can sit in the verification layer that protects price accuracy before money moves.","textChars":138,"textLines":1,"bbox":[42,470,760,72]}
+{"kind":"shape","id":"sh/wval87ed","slide":7,"bbox":[840,462,358,86]}
+{"kind":"textbox","id":"sh/7adsji5s","slide":7,"text":"Wedge","textPreview":"Wedge","textChars":5,"textLines":1,"bbox":[862,478,112,26]}
+{"kind":"textbox","id":"sh/epkzupwb","slide":7,"text":"Start where checkout totals are most opaque, then expand by retailer adapter and client integration.","textPreview":"Start where checkout totals are most opaque, then expand by retailer adapter and client integration.","textChars":100,"textLines":1,"bbox":[862,506,300,32]}
+{"kind":"textbox","id":"sh/psfil0rq","slide":7,"text":"Sources: UNCTAD Data Hub 2024 update; Statista eCommerce Worldwide Market Forecast; Baymard UX statistics; The Morning citing ECDB.","textPreview":"Sources: UNCTAD Data Hub 2024 update; Statista eCommerce Worldwide Market Forecast; Baymard UX statistics; The Morning citing ECDB.","textChars":131,"textLines":1,"bbox":[42,624,1010,26]}
+{"kind":"notes","id":"nt/i8nqfv","slide":7,"text":""}
+{"kind":"slide","id":"sl/58stzl","slide":8,"title":"Daraz is the beachhead; the platform expands by adapter and account","textShapes":12}
+{"kind":"textbox","id":"sh/yd0z6103","slide":8,"text":"Daraz is the beachhead; the platform expands by adapter and account","textPreview":"Daraz is the beachhead; the platform expands by adapter and account","textChars":67,"textLines":1,"bbox":[42,36,760,92]}
+{"kind":"textbox","id":"sh/90je9cvi","slide":8,"text":"CartTruth project deck","textPreview":"CartTruth project deck","textChars":22,"textLines":1,"bbox":[42,660,500,24]}
+{"kind":"textbox","id":"sh/gfmlkjm1","slide":8,"text":"08","textPreview":"08","textChars":2,"textLines":1,"bbox":[1184,660,54,24]}
+{"kind":"shape","id":"sh/rmhk3q5o","slide":8,"bbox":[42,166,540,356]}
+{"kind":"shape","id":"sh/y1kre1w7","slide":8,"bbox":[658,166,540,356]}
+{"kind":"textbox","id":"sh/9s36hcrm","slide":8,"text":"Beachhead: Daraz Sri Lanka","textPreview":"Beachhead: Daraz Sri Lanka","textChars":26,"textLines":1,"bbox":[70,196,470,34]}
+{"kind":"textbox","id":"sh/g7adsji5","slide":8,"text":"A focused marketplace flow gives CartTruth a concrete, local use case where delivery, vouchers, fees, and session state materially change the payable total.","textPreview":"A focused marketplace flow gives CartTruth a concrete, local use case where delivery, vouchers, fees, and session state materially change...","textChars":156,"textLines":1,"bbox":[70,254,450,106]}
+{"kind":"textbox","id":"sh/nih4byhg","slide":8,"text":"Best early users","textPreview":"Best early users","textChars":16,"textLines":1,"bbox":[70,398,220,28]}
+{"kind":"textbox","id":"sh/yxobm58z","slide":8,"text":"Deal hunters\nMarketplace sellers\nSupport teams reproducing complaints","textPreview":"Deal hunters | Marketplace sellers | Support teams reproducing complaints","textChars":69,"textLines":3,"bbox":[70,436,430,70]}
+{"kind":"textbox","id":"sh/obm58z25","slide":8,"text":"Expansion path","textPreview":"Expansion path","textChars":14,"textLines":1,"bbox":[686,196,470,34]}
+{"kind":"textbox","id":"sh/hwfyxobm","slide":8,"text":"Each new adapter adds a retailer-specific checkout reader while preserving the same input contract, safety layer, evidence trail, and status model.","textPreview":"Each new adapter adds a retailer-specific checkout reader while preserving the same input contract, safety layer, evidence trail, and sta...","textChars":147,"textLines":1,"bbox":[686,254,440,106]}
+{"kind":"textbox","id":"sh/65wjudg7","slide":8,"text":"Higher-value clients","textPreview":"Higher-value clients","textChars":20,"textLines":1,"bbox":[686,398,260,28]}
+{"kind":"textbox","id":"sh/zqtcj6to","slide":8,"text":"Retail QA teams\nEcommerce operations\nFintech and offer partners\nAI automation teams","textPreview":"Retail QA teams | Ecommerce operations | Fintech and offer partners | AI automation teams","textChars":83,"textLines":4,"bbox":[686,436,430,96]}
+{"kind":"textbox","id":"sh/oza1gvy9","slide":8,"text":"Sources: CartTruth current Daraz implementation; Daraz Sri Lanka market page for local ecommerce context.","textPreview":"Sources: CartTruth current Daraz implementation; Daraz Sri Lanka market page for local ecommerce context.","textChars":105,"textLines":1,"bbox":[42,624,1010,26]}
+{"kind":"notes","id":"nt/58stzl","slide":8,"text":""}
+{"kind":"slide","id":"sl/65bonr","slide":9,"title":"REST and MCP turn CartTruth into infrastructure","textShapes":11}
+{"kind":"textbox","id":"sh/4vmtwra5","slide":9,"text":"REST and MCP turn CartTruth into infrastructure","textPreview":"REST and MCP turn CartTruth into infrastructure","textChars":47,"textLines":1,"bbox":[42,36,760,92]}
+{"kind":"textbox","id":"sh/bat47y1k","slide":9,"text":"CartTruth project deck","textPreview":"CartTruth project deck","textChars":22,"textLines":1,"bbox":[42,660,500,24]}
+{"kind":"textbox","id":"sh/mp0bi9s3","slide":9,"text":"09","textPreview":"09","textChars":2,"textLines":1,"bbox":[1184,660,54,24]}
+{"kind":"shape","id":"sh/tsvu9kni","slide":9,"bbox":[42,166,540,376]}
+{"kind":"shape","id":"sh/47y1kre1","slide":9,"bbox":[658,166,540,376]}
+{"kind":"shape","id":"sh/bm58z25k","slide":9,"bbox":[42,166,540,10]}
+{"kind":"shape","id":"sh/m1cfa9w3","slide":9,"bbox":[658,166,540,10]}
+{"kind":"textbox","id":"sh/twra5gbq","slide":9,"text":"REST API","textPreview":"REST API","textChars":8,"textLines":1,"bbox":[72,206,250,36]}
+{"kind":"textbox","id":"sh/4byhgn29","slide":9,"text":"For existing client systems","textPreview":"For existing client systems","textChars":27,"textLines":1,"bbox":[72,248,330,28]}
+{"kind":"textbox","id":"sh/m58z25kb","slide":9,"text":"POST /checks\nGET /runs/:id\nGET /runs/:id/artifacts\nPOST /sessions\nWebhook on completed, blocked, needs_attention\nAuth, quotas, adapter health, and evidence retention","textPreview":"POST /checks | GET /runs/:id | GET /runs/:id/artifacts | POST /sessions | Webhook on completed, blocked, needs_attention | Auth, quotas, ...","textChars":165,"textLines":6,"bbox":[72,304,430,178]}
+{"kind":"textbox","id":"sh/bq1oryts","slide":9,"text":"MCP server","textPreview":"MCP server","textChars":10,"textLines":1,"bbox":[688,206,280,36]}
+{"kind":"textbox","id":"sh/4byhgn29","slide":9,"text":"For AI agents and analyst workflows","textPreview":"For AI agents and analyst workflows","textChars":35,"textLines":1,"bbox":[688,248,380,28]}
+{"kind":"textbox","id":"sh/twra5gbq","slide":9,"text":"Tools: check_cart_total, search_product, read_run\nResources: run JSON, screenshots, adapter status\nPrompts: investigate price delta, summarize evidence\nTransports: local stdio first, hosted HTTP later","textPreview":"Tools: check_cart_total, search_product, read_run | Resources: run JSON, screenshots, adapter status | Prompts: investigate price delta, ...","textChars":200,"textLines":4,"bbox":[688,304,430,154]}
+{"kind":"shape","id":"sh/mhk3q5o7","slide":9,"bbox":[42,565,1156,42]}
+{"kind":"textbox","id":"sh/b2hwfyxo","slide":9,"text":"Same engine, two surfaces: deterministic APIs for software, MCP primitives for models that need tools and context.","textPreview":"Same engine, two surfaces: deterministic APIs for software, MCP primitives for models that need tools and context.","textChars":114,"textLines":1,"bbox":[64,576,1080,22]}
+{"kind":"textbox","id":"sh/4nap4r65","slide":9,"text":"Sources: Model Context Protocol specification 2025-06-18; official TypeScript SDK docs; CartTruth local API endpoints.","textPreview":"Sources: Model Context Protocol specification 2025-06-18; official TypeScript SDK docs; CartTruth local API endpoints.","textChars":118,"textLines":1,"bbox":[42,624,1010,26]}
+{"kind":"notes","id":"nt/65bonr","slide":9,"text":""}
+{"kind":"slide","id":"sl/wzrubh","slide":10,"title":"A practical go-to-market can start with paid verification workflows","textShapes":24}
+{"kind":"textbox","id":"sh/4zidonyd","slide":10,"text":"A practical go-to-market can start with paid verification workflows","textPreview":"A practical go-to-market can start with paid verification workflows","textChars":67,"textLines":1,"bbox":[42,36,760,92]}
+{"kind":"textbox","id":"sh/fepkzupw","slide":10,"text":"CartTruth project deck","textPreview":"CartTruth project deck","textChars":22,"textLines":1,"bbox":[42,660,500,24]}
+{"kind":"textbox","id":"sh/mtwra5gb","slide":10,"text":"10","textPreview":"10","textChars":2,"textLines":1,"bbox":[1184,660,54,24]}
+{"kind":"shape","id":"sh/xc3ylc7u","slide":10,"bbox":[42,170,1196,70]}
+{"kind":"textbox","id":"sh/4r65wjud","slide":10,"text":"Segment","textPreview":"Segment","textChars":7,"textLines":1,"bbox":[52,180,230,54]}
+{"kind":"textbox","id":"sh/f6dcbulw","slide":10,"text":"Pain","textPreview":"Pain","textChars":4,"textLines":1,"bbox":[302,180,290,54]}
+{"kind":"textbox","id":"sh/mlkjm1cf","slide":10,"text":"CartTruth offer","textPreview":"CartTruth offer","textChars":15,"textLines":1,"bbox":[612,180,290,54]}
+{"kind":"textbox","id":"sh/x0nuxc3y","slide":10,"text":"Pricing hypothesis","textPreview":"Pricing hypothesis","textChars":18,"textLines":1,"bbox":[922,180,306,54]}
+{"kind":"shape","id":"sh/4fu18jqh","slide":10,"bbox":[42,240,1196,70]}
+{"kind":"textbox","id":"sh/6dcbulwv","slide":10,"text":"Marketplace sellers","textPreview":"Marketplace sellers","textChars":19,"textLines":1,"bbox":[52,250,230,54]}
+{"kind":"textbox","id":"sh/vy90je9c","slide":10,"text":"Final price and voucher outcome is hard to monitor.","textPreview":"Final price and voucher outcome is hard to monitor.","textChars":51,"textLines":1,"bbox":[302,250,290,54]}
+{"kind":"shape","id":"sh/oj2t83it","slide":10,"bbox":[602,240,1,70]}
+{"kind":"textbox","id":"sh/d4vmtwra","slide":10,"text":"Saved product lists, scheduled checks, evidence history.","textPreview":"Saved product lists, scheduled checks, evidence history.","textChars":56,"textLines":1,"bbox":[612,250,290,54]}
+{"kind":"shape","id":"sh/61032lsz","slide":10,"bbox":[912,240,1,70]}
+{"kind":"textbox","id":"sh/vmtwra5g","slide":10,"text":"Pro subscription plus check quota.","textPreview":"Pro subscription plus check quota.","textChars":34,"textLines":1,"bbox":[922,250,306,54]}
+{"kind":"shape","id":"sh/o7qpg3ex","slide":10,"bbox":[1238,240,1,70]}
+{"kind":"shape","id":"sh/dsji5sne","slide":10,"bbox":[42,310,1196,70]}
+{"kind":"textbox","id":"sh/6tovahoz","slide":10,"text":"Ecommerce QA","textPreview":"Ecommerce QA","textChars":12,"textLines":1,"bbox":[52,320,230,54]}
+{"kind":"textbox","id":"sh/vahoza1g","slide":10,"text":"Pricing releases can break totals across regions and accounts.","textPreview":"Pricing releases can break totals across regions and accounts.","textChars":62,"textLines":1,"bbox":[302,320,290,54]}
+{"kind":"shape","id":"sh/r65wjudg","slide":10,"bbox":[602,310,1,70]}
+{"kind":"textbox","id":"sh/ylc7u54z","slide":10,"text":"Scenario files, CI/API checks, adapter health reports.","textPreview":"Scenario files, CI/API checks, adapter health reports.","textChars":54,"textLines":1,"bbox":[612,320,290,54]}
+{"kind":"shape","id":"sh/9cvixcze","slide":10,"bbox":[912,310,1,70]}
+{"kind":"textbox","id":"sh/gr2p8nqx","slide":10,"text":"Team plan or usage-based runs.","textPreview":"Team plan or usage-based runs.","textChars":30,"textLines":1,"bbox":[922,320,306,54]}
+{"kind":"shape","id":"sh/nih4byhg","slide":10,"bbox":[1238,310,1,70]}
+{"kind":"shape","id":"sh/yxobm58z","slide":10,"bbox":[42,380,1196,70]}
+{"kind":"textbox","id":"sh/5o7qpg3e","slide":10,"text":"Support and compliance","textPreview":"Support and compliance","textChars":22,"textLines":1,"bbox":[52,390,230,54]}
+{"kind":"textbox","id":"sh/g3ex0nux","slide":10,"text":"Disputes need reproducible proof.","textPreview":"Disputes need reproducible proof.","textChars":33,"textLines":1,"bbox":[302,390,290,54]}
+{"kind":"shape","id":"sh/rmhk3q5o","slide":10,"bbox":[602,380,1,70]}
+{"kind":"textbox","id":"sh/y1kre1w7","slide":10,"text":"Read-only evidence bundles with redacted screenshots.","textPreview":"Read-only evidence bundles with redacted screenshots.","textChars":53,"textLines":1,"bbox":[612,390,290,54]}
+{"kind":"shape","id":"sh/sji5snel","slide":10,"bbox":[912,380,1,70]}
+{"kind":"textbox","id":"sh/h4byhgn2","slide":10,"text":"Seat-based review access.","textPreview":"Seat-based review access.","textChars":25,"textLines":1,"bbox":[922,390,306,54]}
+{"kind":"shape","id":"sh/adsji5sn","slide":10,"bbox":[1238,380,1,70]}
+{"kind":"shape","id":"sh/3ylc7u54","slide":10,"bbox":[42,450,1196,70]}
+{"kind":"textbox","id":"sh/s72x4nap","slide":10,"text":"AI / automation teams","textPreview":"AI / automation teams","textChars":21,"textLines":1,"bbox":[52,460,230,54]}
+{"kind":"textbox","id":"sh/lszqtcj6","slide":10,"text":"Agents need a safe checkout tool, not browser improvisation.","textPreview":"Agents need a safe checkout tool, not browser improvisation.","textChars":60,"textLines":1,"bbox":[302,460,290,54]}
+{"kind":"shape","id":"sh/a5gbq1or","slide":10,"bbox":[602,450,1,70]}
+{"kind":"textbox","id":"sh/3m94fu18","slide":10,"text":"MCP tools, resources, and prompts on top of REST contracts.","textPreview":"MCP tools, resources, and prompts on top of REST contracts.","textChars":59,"textLines":1,"bbox":[612,460,290,54]}
+{"kind":"shape","id":"sh/s36hcrmh","slide":10,"bbox":[912,450,1,70]}
+{"kind":"textbox","id":"sh/hoza1gvy","slide":10,"text":"Platform plan with MCP/API limits.","textPreview":"Platform plan with MCP/API limits.","textChars":34,"textLines":1,"bbox":[922,460,306,54]}
+{"kind":"shape","id":"sh/dcbulwva","slide":10,"bbox":[1238,450,1,70]}
+{"kind":"textbox","id":"sh/kre1w7mp","slide":10,"text":"The first commercial proof does not require a broad marketplace. It requires a few repeat users who already lose time validating checkout outcomes manually.","textPreview":"The first commercial proof does not require a broad marketplace. It requires a few repeat users who already lose time validating checkout...","textChars":156,"textLines":1,"bbox":[42,548,900,52]}
+{"kind":"notes","id":"nt/wzrubh","slide":10,"text":""}
+{"kind":"slide","id":"sl/tfxu7v","slide":11,"title":"Next milestones turn a working checker into a pilotable platform","textShapes":19}
+{"kind":"textbox","id":"sh/ih4byhgn","slide":11,"text":"Next milestones turn a working checker into a pilotable platform","textPreview":"Next milestones turn a working checker into a pilotable platform","textChars":64,"textLines":1,"bbox":[42,36,760,92]}
+{"kind":"textbox","id":"sh/p8nqxs72","slide":11,"text":"CartTruth project deck","textPreview":"CartTruth project deck","textChars":22,"textLines":1,"bbox":[42,660,500,24]}
+{"kind":"textbox","id":"sh/0nuxc3yl","slide":11,"text":"11","textPreview":"11","textChars":2,"textLines":1,"bbox":[1184,660,54,24]}
+{"kind":"shape","id":"sh/7ed8bat4","slide":11,"bbox":[42,164,96,60]}
+{"kind":"textbox","id":"sh/itgfmlkj","slide":11,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[60,176,58,28]}
+{"kind":"textbox","id":"sh/pkzupwb2","slide":11,"text":"Harden Daraz","textPreview":"Harden Daraz","textChars":12,"textLines":1,"bbox":[172,168,280,30]}
+{"kind":"textbox","id":"sh/0z61032l","slide":11,"text":"Improve extraction coverage, product matching, privacy redaction, and blocked-state handling.","textPreview":"Improve extraction coverage, product matching, privacy redaction, and blocked-state handling.","textChars":93,"textLines":1,"bbox":[452,171,720,42]}
+{"kind":"shape","id":"sh/7qpg3ex0","slide":11,"bbox":[42,242,96,60]}
+{"kind":"textbox","id":"sh/i5sneloj","slide":11,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[60,254,58,28]}
+{"kind":"textbox","id":"sh/0nuxc3yl","slide":11,"text":"Formalize REST","textPreview":"Formalize REST","textChars":14,"textLines":1,"bbox":[172,246,280,30]}
+{"kind":"textbox","id":"sh/p8nqxs72","slide":11,"text":"Publish request/result contracts, API keys, webhooks, hosted evidence, and adapter health endpoints.","textPreview":"Publish request/result contracts, API keys, webhooks, hosted evidence, and adapter health endpoints.","textChars":100,"textLines":1,"bbox":[452,249,720,42]}
+{"kind":"shape","id":"sh/ih4byhgn","slide":11,"bbox":[42,320,96,60]}
+{"kind":"textbox","id":"sh/72x4nap4","slide":11,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[60,332,58,28]}
+{"kind":"textbox","id":"sh/0z61032l","slide":11,"text":"Ship MCP","textPreview":"Ship MCP","textChars":8,"textLines":1,"bbox":[172,324,280,30]}
+{"kind":"textbox","id":"sh/pkzupwb2","slide":11,"text":"Expose search, check, read-run, and evidence resources for agentic client workflows.","textPreview":"Expose search, check, read-run, and evidence resources for agentic client workflows.","textChars":84,"textLines":1,"bbox":[452,327,720,42]}
+{"kind":"shape","id":"sh/itgfmlkj","slide":11,"bbox":[42,398,96,60]}
+{"kind":"textbox","id":"sh/7ed8bat4","slide":11,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[60,410,58,28]}
+{"kind":"textbox","id":"sh/0bi9s36h","slide":11,"text":"Add adapters","textPreview":"Add adapters","textChars":12,"textLines":1,"bbox":[172,402,280,30]}
+{"kind":"textbox","id":"sh/pwb2hwfy","slide":11,"text":"Package the adapter SDK and implement the next marketplace or retailer path.","textPreview":"Package the adapter SDK and implement the next marketplace or retailer path.","textChars":76,"textLines":1,"bbox":[452,405,720,42]}
+{"kind":"shape","id":"sh/94fu18jq","slide":11,"bbox":[42,476,96,60]}
+{"kind":"textbox","id":"sh/kjm1cfa9","slide":11,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[60,488,58,28]}
+{"kind":"textbox","id":"sh/r2p8nqxs","slide":11,"text":"Run pilots","textPreview":"Run pilots","textChars":10,"textLines":1,"bbox":[172,480,280,30]}
+{"kind":"textbox","id":"sh/2hwfyxob","slide":11,"text":"Recruit 2-3 sellers or commerce teams and measure saved time, dispute quality, and repeat usage.","textPreview":"Recruit 2-3 sellers or commerce teams and measure saved time, dispute quality, and repeat usage.","textChars":96,"textLines":1,"bbox":[452,483,720,42]}
+{"kind":"shape","id":"sh/9gr2p8nq","slide":11,"bbox":[42,592,1196,34]}
+{"kind":"textbox","id":"sh/gvy90je9","slide":11,"text":"Ask: approve the API + MCP roadmap and start pilot discovery with real checkout-verification users.","textPreview":"Ask: approve the API + MCP roadmap and start pilot discovery with real checkout-verification users.","textChars":99,"textLines":1,"bbox":[62,601,1090,18]}
+{"kind":"notes","id":"nt/tfxu7v","slide":11,"text":""}

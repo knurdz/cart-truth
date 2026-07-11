@@ -4,6 +4,15 @@ import "./styles.css";
 
 type Money = { currency: string; minorUnits?: number; amount?: string | number };
 
+type AppUser = {
+  id: string;
+  username: string;
+  role: "admin" | "user";
+  disabled: boolean;
+  mustChangePassword: boolean;
+  createdAt: string;
+};
+
 type DarazSearchResult = {
   id: string;
   title: string;
@@ -13,7 +22,16 @@ type DarazSearchResult = {
   availability?: string;
 };
 
-type SelectedProduct = DarazSearchResult & { quantity: number };
+type SavedLink = {
+  id: string;
+  title: string;
+  url: string;
+  imageUrl?: string;
+  observedPriceJson?: string;
+  availability?: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
 type ProductPrice = {
   title: string;
@@ -45,149 +63,356 @@ type DarazCheckResult = {
   evidence: Array<{ kind: string; uri: string }>;
 };
 
+type DarazSessionStatus = "missing" | "saved" | "needs_login" | "needs_verification" | "unknown";
+
+type DarazSession = {
+  status: DarazSessionStatus;
+  savedAt?: string;
+  lastValidatedAt?: string;
+  validationUrl?: string;
+  message?: string;
+  live?: boolean;
+  captureId?: string;
+};
+
+type DarazCredentialStatus = {
+  saved: boolean;
+  username?: string;
+  updatedAt?: string;
+};
+
 function App() {
-  const [query, setQuery] = useState("phone");
-  const [productUrl, setProductUrl] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [addingLink, setAddingLink] = useState(false);
-  const [recalculatingUrls, setRecalculatingUrls] = useState<string[]>([]);
-  const [checking, setChecking] = useState(false);
-  const [results, setResults] = useState<DarazSearchResult[]>([]);
-  const [selected, setSelected] = useState<SelectedProduct[]>([]);
-  const [latest, setLatest] = useState<DarazCheckResult | undefined>();
-  const [history, setHistory] = useState<DarazCheckResult[]>([]);
+  const [user, setUser] = useState<AppUser | undefined>();
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    void refreshMe();
+  }, []);
+
+  async function refreshMe() {
+    const response = await fetchJson<{ user?: AppUser }>("/api/auth/me");
+    setUser(response.user);
+    setAuthChecked(true);
+  }
+
+  if (!authChecked) {
+    return <main className="shell"><p className="empty">Loading...</p></main>;
+  }
+
+  if (!user) {
+    return <LoginScreen onLogin={setUser} />;
+  }
+
+  return (
+    <Dashboard
+      user={user}
+      onUserChange={setUser}
+      onLogout={async () => {
+        await postJson("/api/auth/logout", {});
+        setUser(undefined);
+      }}
+    />
+  );
+}
+
+function LoginScreen({ onLogin }: { onLogin: (user: AppUser) => void }) {
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
-  const [captureId, setCaptureId] = useState("");
-  const [hasSession, setHasSession] = useState(false);
+
+  async function login(event: React.FormEvent) {
+    event.preventDefault();
+    setMessage("");
+    try {
+      const response = await postJson<{ user: AppUser }>("/api/auth/login", { username, password });
+      onLogin(response.user);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <main className="shell login-shell">
+      <section className="login-panel">
+        <h1>CartTruth</h1>
+        <p>Sign in to check Daraz final prices from your own saved Daraz session.</p>
+        <form onSubmit={(event) => void login(event)}>
+          <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" autoComplete="username" />
+          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete="current-password" />
+          <button type="submit">Sign in</button>
+        </form>
+        {message && <p className="attention-message">{message}</p>}
+      </section>
+    </main>
+  );
+}
+
+function Dashboard({ user, onUserChange, onLogout }: { user: AppUser; onUserChange: (user: AppUser) => void; onLogout: () => Promise<void> }) {
+  const [tab, setTab] = useState<"links" | "admin">(user.role === "admin" ? "admin" : "links");
+
+  return (
+    <main className="shell">
+      <header className="hero">
+        <div>
+          <p className="eyebrow">Daraz final price checker</p>
+          <h1>{user.role === "admin" ? "Admin dashboard" : "Your Daraz dashboard"}</h1>
+          <p>Logged in as {user.username}. Daraz sessions, links, and evidence are scoped to this app account.</p>
+        </div>
+        <div className="button-row">
+          <button type="button" className={tab === "links" ? "" : "light-button"} onClick={() => setTab("links")}>My links</button>
+          {user.role === "admin" && <button type="button" className={tab === "admin" ? "" : "light-button"} onClick={() => setTab("admin")}>Users</button>}
+          <button type="button" className="light-button" onClick={() => void onLogout()}>Logout</button>
+        </div>
+      </header>
+
+      {user.mustChangePassword && <ChangePasswordPanel onChanged={(updated) => onUserChange(updated)} />}
+      {tab === "admin" && user.role === "admin" ? <AdminPanel /> : <UserPanel />}
+    </main>
+  );
+}
+
+function ChangePasswordPanel({ onChanged }: { onChanged: (user: AppUser) => void }) {
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("Change the temporary password before sharing this account.");
+
+  async function changePassword(event: React.FormEvent) {
+    event.preventDefault();
+    try {
+      const response = await postJson<{ user: AppUser }>("/api/auth/change-password", { password });
+      onChanged(response.user);
+      setPassword("");
+      setMessage("Password changed.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <section className="login-box">
+      <strong>Temporary password</strong>
+      <form className="inline-form" onSubmit={(event) => void changePassword(event)}>
+        <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" placeholder="New password" />
+        <button type="submit">Change password</button>
+      </form>
+      <p>{message}</p>
+    </section>
+  );
+}
+
+function AdminPanel() {
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState<"admin" | "user">("user");
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     void refresh();
   }, []);
 
-  const selectedTotal = useMemo(() => {
-    return selected.reduce((total, product) => total + (product.observedPrice?.minorUnits ?? 0) * product.quantity, 0);
-  }, [selected]);
+  async function refresh() {
+    const response = await fetchJson<{ users: AppUser[] }>("/api/admin/users");
+    setUsers(response.users);
+  }
+
+  async function createUser(event: React.FormEvent) {
+    event.preventDefault();
+    try {
+      await postJson("/api/admin/users", { username, password, role });
+      setUsername("");
+      setPassword("");
+      setRole("user");
+      setMessage("User created.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function setDisabled(userId: string, disabled: boolean) {
+    await postJson(`/api/admin/users/${userId}/disabled`, { disabled });
+    await refresh();
+  }
+
+  return (
+    <section className="price-section">
+      <div className="section-title">
+        <h2>Users</h2>
+      </div>
+      <form className="toolbar" onSubmit={(event) => void createUser(event)}>
+        <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" />
+        <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Temporary password" type="password" />
+        <select value={role} onChange={(event) => setRole(event.target.value as "admin" | "user")}>
+          <option value="user">User</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button type="submit">Create user</button>
+      </form>
+      {message && <p className="message">{message}</p>}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((item) => (
+              <tr key={item.id}>
+                <td>{item.username}</td>
+                <td>{item.role}</td>
+                <td>{item.disabled ? "disabled" : item.mustChangePassword ? "temporary password" : "active"}</td>
+                <td>{new Date(item.createdAt).toLocaleString()}</td>
+                <td>
+                  <button type="button" className="text-button" onClick={() => void setDisabled(item.id, !item.disabled)}>
+                    {item.disabled ? "Enable" : "Disable"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function UserPanel() {
+  const [productUrl, setProductUrl] = useState("");
+  const [links, setLinks] = useState<SavedLink[]>([]);
+  const [darazSession, setDarazSession] = useState<DarazSession>({ status: "missing" });
+  const [captureId, setCaptureId] = useState("");
+  const [browserUrl, setBrowserUrl] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [history, setHistory] = useState<DarazCheckResult[]>([]);
+  const [latest, setLatest] = useState<DarazCheckResult | undefined>();
+  const [credentials, setCredentials] = useState<DarazCredentialStatus>({ saved: false });
+  const [darazUsername, setDarazUsername] = useState("");
+  const [darazPassword, setDarazPassword] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const productPageTotal = useMemo(() => links.reduce((total, link) => {
+    const observed = parseObservedPrice(link)?.minorUnits ?? 0;
+    return total + observed;
+  }, 0), [links]);
 
   async function refresh() {
-    const health = await fetchJson<{ hasDarazSession: boolean }>("/api/health");
-    setHasSession(health.hasDarazSession);
-    const checks = await fetchJson<DarazCheckResult[]>("/api/daraz/runs");
-    setHistory(checks);
-    if (!latest && checks[0]) {
-      setLatest(checks[0]);
+    const [session, saved, runs, credentialStatus] = await Promise.all([
+      fetchJson<DarazSession>("/api/daraz/session/status"),
+      fetchJson<{ links: SavedLink[] }>("/api/links"),
+      fetchJson<DarazCheckResult[]>("/api/daraz/runs"),
+      fetchJson<DarazCredentialStatus>("/api/daraz/credentials")
+    ]);
+    setDarazSession(session);
+    setCaptureId(session.captureId ?? "");
+    if (!session.live) {
+      setBrowserUrl("");
+    }
+    setLinks(saved.links);
+    setHistory(runs);
+    setCredentials(credentialStatus);
+    setDarazUsername(credentialStatus.username ?? "");
+    if (!latest && runs[0]) {
+      setLatest(runs[0]);
     }
   }
 
-  async function search(event?: React.FormEvent) {
-    event?.preventDefault();
-    if (!query.trim()) return;
-    setSearching(true);
-    setMessage("");
+  async function addLink(event: React.FormEvent) {
+    event.preventDefault();
+    setMessage("Reading Daraz product link...");
     try {
-      const response = await postJson<{ results: DarazSearchResult[] }>("/api/daraz/search", { query });
-      setResults(response.results);
-      if (response.results.length === 0) {
-        setMessage("No products found. Try a different search.");
-      }
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  async function addProductLink(event?: React.FormEvent) {
-    event?.preventDefault();
-    if (!productUrl.trim()) {
-      setMessage("Paste a Daraz product link first.");
-      return;
-    }
-
-    setAddingLink(true);
-    setMessage("Reading product link...");
-    try {
-      const response = await postJson<{ product: DarazSearchResult }>("/api/daraz/product", { url: productUrl.trim() });
-      addProduct(response.product);
+      await postJson("/api/links", { url: productUrl.trim() });
       setProductUrl("");
-      setMessage("Product added from link.");
+      setMessage("Link saved.");
+      await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setAddingLink(false);
     }
   }
 
-  async function recalculateProduct(product: SelectedProduct) {
-    setRecalculatingUrls((urls) => [...urls, product.url]);
-    setMessage(`Recalculating ${product.title}...`);
+  async function removeLink(linkId: string) {
+    await fetchJson(`/api/links/${linkId}`, { method: "DELETE" });
+    await refresh();
+  }
+
+  async function startDarazLogin() {
+    setMessage("Opening your Daraz browser session...");
     try {
-      const refreshed = await fetchDarazProduct(product.url);
-      replaceSelectedProduct(product.url, refreshed);
-      setMessage("Product price recalculated.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setRecalculatingUrls((urls) => urls.filter((url) => url !== product.url));
-    }
-  }
-
-  async function recalculateAllProducts() {
-    if (selected.length === 0) return;
-    setMessage("Recalculating selected products...");
-    for (const product of selected) {
-      setRecalculatingUrls((urls) => [...urls, product.url]);
-      try {
-        const refreshed = await fetchDarazProduct(product.url);
-        replaceSelectedProduct(product.url, refreshed);
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : String(error));
-      } finally {
-        setRecalculatingUrls((urls) => urls.filter((url) => url !== product.url));
-      }
-    }
-    setMessage("Selected product prices recalculated.");
-  }
-
-  async function fetchDarazProduct(url: string): Promise<DarazSearchResult> {
-    const response = await postJson<{ product: DarazSearchResult }>("/api/daraz/product", { url });
-    return response.product;
-  }
-
-  async function startAppLogin() {
-    setMessage("Opening inbuilt Daraz login...");
-    try {
-      const response = await postJson<{ captureId: string }>("/api/daraz/session/start", {});
+      const response = await postJson<{ captureId: string; browserUrl?: string }>("/api/daraz/session/start", {});
       setCaptureId(response.captureId);
-      setMessage("Inbuilt Daraz browser opened. Sign in there, then click Save Login here.");
+      setBrowserUrl(response.browserUrl ?? "");
+      setMessage("Daraz browser opened on the server. Complete login or verification there, then save.");
+      await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
   }
 
-  async function saveLogin() {
+  async function saveDarazLogin() {
     if (!captureId) return;
     try {
-      await postJson("/api/daraz/session/save", { captureId });
-      setCaptureId("");
-      setHasSession(true);
-      setMessage("Daraz login saved. You can check final prices now.");
+      const response = await postJson<{ session?: DarazSession }>("/api/daraz/session/save", { captureId });
+      setDarazSession(response.session ?? { status: "saved" });
+      setMessage("Your Daraz session was saved.");
+    } catch (error) {
+      await refresh().catch(() => undefined);
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function resetDarazLogin() {
+    const session = await postJson<DarazSession>("/api/daraz/session/reset", {});
+    setDarazSession(session);
+    setCaptureId("");
+    setBrowserUrl("");
+    setMessage("Daraz session reset.");
+  }
+
+  async function stopDarazBrowser() {
+    const session = await postJson<DarazSession>("/api/daraz/session/stop", {});
+    setDarazSession(session);
+    setCaptureId("");
+    setBrowserUrl("");
+    setMessage("Remote Daraz browser closed.");
+  }
+
+  async function saveDarazCredentials(event: React.FormEvent) {
+    event.preventDefault();
+    try {
+      await postJson("/api/daraz/credentials", { username: darazUsername, password: darazPassword });
+      setDarazPassword("");
+      setMessage("Daraz credentials saved for best-effort auto-login.");
+      await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
   }
 
-  async function checkPrices() {
-    if (selected.length === 0) {
-      setMessage("Add at least one product first.");
+  async function deleteDarazCredentials() {
+    await fetchJson("/api/daraz/credentials", { method: "DELETE" });
+    setDarazUsername("");
+    setDarazPassword("");
+    setMessage("Saved Daraz credentials removed.");
+    await refresh();
+  }
+
+  async function checkAllLinks() {
+    if (links.length === 0) {
+      setMessage("Save at least one Daraz link first.");
       return;
     }
-
     setChecking(true);
-    setMessage("Checking final prices...");
+    setMessage("Checking saved links...");
     try {
-      const result = await postJson<DarazCheckResult>("/api/daraz/check", {
-        products: selected
-      });
+      const result = await postJson<DarazCheckResult>("/api/links/check", {});
       setLatest(result);
       setMessage(result.message ?? "Price check finished.");
       await refresh();
@@ -198,111 +423,64 @@ function App() {
     }
   }
 
-  function addProduct(product: DarazSearchResult) {
-    setSelected((items) => {
-      const existing = items.find((item) => item.url === product.url);
-      if (existing) {
-        return items.map((item) => item.url === product.url ? { ...item, quantity: item.quantity + 1 } : item);
-      }
-      return [...items, { ...product, quantity: 1 }];
-    });
-  }
-
-  function changeQuantity(url: string, quantity: number) {
-    setSelected((items) => items.map((item) => item.url === url ? { ...item, quantity: Math.max(1, quantity) } : item));
-  }
-
-  function replaceSelectedProduct(url: string, refreshed: DarazSearchResult) {
-    setSelected((items) => items.map((item) => item.url === url ? { ...refreshed, quantity: item.quantity } : item));
-  }
-
-  function removeProduct(url: string) {
-    setSelected((items) => items.filter((item) => item.url !== url));
-  }
-
   return (
-    <main className="shell">
-      <header className="hero">
-        <div>
-          <h1>Daraz Price Checker</h1>
-          <p>Search Daraz, add products, and see the price shown at checkout.</p>
-        </div>
-        <button type="button" className="light-button" onClick={() => void refresh()}>Refresh</button>
-      </header>
-
-      <section className="layout">
-        <section className="workspace">
-          <form className="search-bar" onSubmit={(event) => void search(event)}>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Daraz products" />
-            <button type="submit" disabled={searching}>{searching ? "Searching..." : "Search"}</button>
+    <>
+      <section className="workspace">
+        <section className="search-panel">
+          <h2>Saved Daraz links</h2>
+          <form className="toolbar" onSubmit={(event) => void addLink(event)}>
+            <input value={productUrl} onChange={(event) => setProductUrl(event.target.value)} placeholder="Paste Daraz product URL" />
+            <button type="submit">Save link</button>
           </form>
-
-          <form className="link-bar" onSubmit={(event) => void addProductLink(event)}>
-            <input value={productUrl} onChange={(event) => setProductUrl(event.target.value)} placeholder="Paste Daraz product link" />
-            <button type="submit" disabled={addingLink}>{addingLink ? "Adding..." : "Add link"}</button>
-          </form>
-
-          <div className="results-grid">
-            {results.map((product) => (
-              <article className="product-card" key={product.url}>
-                {product.imageUrl ? <img src={product.imageUrl} alt="" /> : <div className="image-placeholder" />}
-                <div>
-                  <h2>{product.title}</h2>
-                  <p className="price">{formatMoney(product.observedPrice)}</p>
-                  <button type="button" onClick={() => addProduct(product)}>Add</button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <aside className="cart-box">
-          <h2>Selected Products</h2>
-          <p className={`session-state ${hasSession ? "saved" : "required"}`}>
-            {hasSession ? "Daraz login saved" : "Login required"}
-          </p>
-          {selected.length === 0 ? <p className="empty">Add products from search results.</p> : (
+          {links.length === 0 ? <p className="empty">No saved links yet.</p> : (
             <div className="selected-list">
-              {selected.map((product) => (
-                <div className="selected-item" key={product.url}>
-                  <strong>{product.title}</strong>
-                  <span>{formatMoney(product.observedPrice)}</span>
-                  <label>
-                    Qty
-                    <input type="number" min="1" value={product.quantity} onChange={(event) => changeQuantity(product.url, Number(event.target.value))} />
-                  </label>
-                  <div className="selected-actions">
-                    <button type="button" className="text-button" disabled={recalculatingUrls.includes(product.url)} onClick={() => void recalculateProduct(product)}>
-                      {recalculatingUrls.includes(product.url) ? "Checking..." : "Recalculate"}
-                    </button>
-                    <button type="button" className="text-button" onClick={() => removeProduct(product.url)}>Remove</button>
-                  </div>
+              {links.map((link) => (
+                <div className="selected-item" key={link.id}>
+                  <strong>{link.title}</strong>
+                  <a href={link.url} target="_blank" rel="noreferrer">Open product</a>
+                  <span>{formatMoney(parseObservedPrice(link))}</span>
+                  <span>Qty 1</span>
+                  <button type="button" className="text-button" onClick={() => void removeLink(link.id)}>Remove</button>
                 </div>
               ))}
               <div className="selected-total">
                 <span>Product-page total</span>
-                <strong>{formatLkr(selectedTotal)}</strong>
-              </div>
-              <button type="button" className="light-button recalculate-all" disabled={recalculatingUrls.length > 0} onClick={() => void recalculateAllProducts()}>
-                {recalculatingUrls.length > 0 ? "Recalculating..." : "Recalculate all"}
-              </button>
-            </div>
-          )}
-
-          {!hasSession && (
-            <div className="login-box">
-              <strong>Login with Daraz</strong>
-              <p>Use the inbuilt browser so checkout can reuse the same Daraz session.</p>
-              <div className="button-row">
-                <button type="button" onClick={() => void startAppLogin()}>Open Inbuilt Daraz Login</button>
-                <button type="button" disabled={!captureId} onClick={() => void saveLogin()}>Save Login</button>
+                <strong>{formatLkr(productPageTotal)}</strong>
               </div>
             </div>
           )}
+        </section>
 
-          <button type="button" className="primary-action" disabled={checking || selected.length === 0 || Boolean(captureId)} onClick={() => void checkPrices()}>
-            {checking ? "Checking..." : "Check final prices"}
+        <aside className="cart-box">
+          <h2>Your Daraz session</h2>
+          <p className={`session-state ${sessionClassName(darazSession.status)}`}>{sessionLabel(darazSession.status)}</p>
+          <p>{darazSession.live ? "Your server-side Daraz browser is active." : "Connect your Daraz account before checking checkout totals."}</p>
+          <div className="button-row">
+            <button type="button" disabled={Boolean(captureId)} onClick={() => void startDarazLogin()}>
+              {captureId ? "Browser active" : "Open Daraz browser"}
+            </button>
+            <button type="button" disabled={!captureId} onClick={() => void saveDarazLogin()}>Save session</button>
+            <button type="button" className="light-button" disabled={!captureId && darazSession.status === "missing"} onClick={() => void resetDarazLogin()}>Reset</button>
+            <button type="button" className="light-button" disabled={!captureId} onClick={() => void stopDarazBrowser()}>Stop browser</button>
+          </div>
+          {browserUrl && <a className="browser-link" href={browserUrl} target="_blank" rel="noreferrer">Open remote browser</a>}
+          <button type="button" className="primary-action" disabled={checking || links.length === 0} onClick={() => void checkAllLinks()}>
+            {checking ? "Checking..." : "Check saved links"}
           </button>
+          <details className="remember-login">
+            <summary>Optional Daraz auto-login</summary>
+            <form className="inline-form" onSubmit={(event) => void saveDarazCredentials(event)}>
+              <input value={darazUsername} onChange={(event) => setDarazUsername(event.target.value)} placeholder="Daraz email or phone" autoComplete="username" />
+              <input value={darazPassword} onChange={(event) => setDarazPassword(event.target.value)} placeholder={credentials.saved ? "New password" : "Daraz password"} type="password" autoComplete="current-password" />
+              <button type="submit">Save encrypted</button>
+            </form>
+            {credentials.saved && (
+              <p>
+                Saved for {credentials.username}. <button type="button" className="text-button" onClick={() => void deleteDarazCredentials()}>Remove</button>
+              </p>
+            )}
+          </details>
+          {darazSession.message && <p className="attention-message">{darazSession.message}</p>}
           {message && <p className="message">{message}</p>}
         </aside>
       </section>
@@ -317,9 +495,9 @@ function App() {
 
       {history.length > 0 && (
         <section className="history-section">
-          <h2>Previous Checks</h2>
+          <h2>Your previous checks</h2>
           <div className="history-list">
-            {history.slice(0, 6).map((item) => (
+            {history.slice(0, 8).map((item) => (
               <button type="button" key={item.runId} onClick={() => setLatest(item)}>
                 <span>{new Date(item.startedAt).toLocaleString()}</span>
                 <strong>{plainStatus(item.status)}</strong>
@@ -328,7 +506,7 @@ function App() {
           </div>
         </section>
       )}
-    </main>
+    </>
   );
 }
 
@@ -379,7 +557,7 @@ function ProductBreakdown({ product }: { product: ProductPrice }) {
   return (
     <div className="mini-breakdown">
       <div>
-        <span>Unit</span>
+        <span>Product price</span>
         <strong>{formatMoney(product.checkoutUnitPrice)}</strong>
       </div>
       <div>
@@ -424,15 +602,26 @@ function displayBreakdownLabel(item: PriceBreakdownItem) {
   const kindLabel: Record<PriceBreakdownItem["kind"], string> = {
     product_subtotal: "Product subtotal",
     delivery: "Delivery fee",
-    platform_fee: "Platform fee",
-    service_fee: "Service fee",
+    platform_fee: "Online fee",
+    service_fee: "Online fee",
     tax: "Tax",
     discount: "Discount",
-    voucher: "Voucher",
+    voucher: "Applicable coupon",
     total: "Total",
     other: "Other charge"
   };
   return item.label || kindLabel[item.kind];
+}
+
+function parseObservedPrice(link: SavedLink): Money | undefined {
+  if (!link.observedPriceJson) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(link.observedPriceJson) as Money;
+  } catch {
+    return undefined;
+  }
 }
 
 function formatMoney(value?: Money) {
@@ -449,8 +638,27 @@ function plainStatus(status: string) {
   return status.replace(/_/g, " ");
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+function sessionLabel(status: DarazSessionStatus) {
+  switch (status) {
+    case "saved":
+      return "Daraz login saved";
+    case "needs_verification":
+      return "Verification needed";
+    case "needs_login":
+      return "Login expired";
+    case "unknown":
+      return "Session needs check";
+    default:
+      return "Login required";
+  }
+}
+
+function sessionClassName(status: DarazSessionStatus) {
+  return status === "saved" ? "saved" : "required";
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
   if (!response.ok) throw new Error(await readErrorMessage(response));
   return response.json() as Promise<T>;
 }

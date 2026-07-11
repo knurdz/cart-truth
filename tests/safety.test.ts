@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertSafeActionLabel, classifyPageText, isFinalizationRequestLike, parseMoneyText } from "@carttruth/core";
+import { assertSafeActionLabel, classifyPageText, classifyPageUrl, isFinalizationRequestLike, parseMoneyText } from "@carttruth/core";
 import { extractMoneyByLabels } from "@carttruth/adapters";
 
 describe("money and safety helpers", () => {
@@ -27,5 +27,10 @@ describe("money and safety helpers", () => {
     expect(classifyPageText("Please solve this captcha")).toBe("captcha");
     expect(classifyPageText("Access denied due to unusual traffic")).toBe("blocked");
     expect(classifyPageText("Sign in to continue")).toBe("login_required");
+    expect(classifyPageText("Welcome to Daraz! Please login.")).toBe("login_required");
+    expect(classifyPageText("Login with Password")).toBe("login_required");
+    expect(classifyPageText("LOGIN")).toBeUndefined();
+    expect(classifyPageText("Phone Number or Email Password")).toBe("login_required");
+    expect(classifyPageUrl("https://member.daraz.lk/user/login")).toBe("login_required");
   });
 });

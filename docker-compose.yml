@@ -1,0 +1,39 @@
+services:
+  carttruth:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: 5173
+      CARTTRUTH_PUBLIC_URL: ${CARTTRUTH_PUBLIC_URL:-https://carttruth.knurdz.org}
+      CARTTRUTH_LOG_LEVEL: ${CARTTRUTH_LOG_LEVEL:-info}
+      CARTTRUTH_BROWSER_MODE: ${CARTTRUTH_BROWSER_MODE:-vnc}
+      CARTTRUTH_BROWSER_IDLE_TIMEOUT_MS: ${CARTTRUTH_BROWSER_IDLE_TIMEOUT_MS:-900000}
+      CARTTRUTH_SQLITE_PATH: /data/carttruth.db
+      CARTTRUTH_SESSIONS_DIR: /data/sessions
+      CARTTRUTH_RUNS_DIR: /data/runs
+    volumes:
+      - carttruth-data:/data
+    expose:
+      - "5173"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - carttruth
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CARTTRUTH_DOMAIN: ${CARTTRUTH_DOMAIN:-carttruth.knurdz.org}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  carttruth-data:
+  caddy-data:
+  caddy-config:

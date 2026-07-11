@@ -172,7 +172,7 @@ export const DarazSearchResultSchema = z.object({
 export type DarazSearchResult = z.infer<typeof DarazSearchResultSchema>;
 
 export const DarazSelectedProductSchema = DarazSearchResultSchema.extend({
-  quantity: z.number().int().positive().default(1)
+  quantity: z.number().int().positive().catch(1).transform(() => 1)
 });
 export type DarazSelectedProduct = z.infer<typeof DarazSelectedProductSchema>;
 

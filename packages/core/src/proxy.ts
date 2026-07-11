@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
 import { fetch, ProxyAgent } from "undici";
 import { ProxyProfileSchema, type ProxyProfile, type RetailerId } from "@carttruth/schemas";
+
+export const DEFAULT_TORCH_PROXY_PROFILE_ID = "torch-isp-trial";
 
 export interface ProxyLease {
   id: string;
@@ -22,6 +25,18 @@ export interface ProxyProvider {
   markBlocked(lease: ProxyLease, reason: string): Promise<void>;
   markExhausted(lease: ProxyLease, reason: string): Promise<void>;
 }
+
+export type ProxyEnv = Record<string, string | undefined>;
+
+export type ProxySummary = {
+  enabled: boolean;
+  fingerprint: string;
+  id?: string;
+  source?: string;
+  poolType?: ProxyProfile["poolType"];
+  country?: string;
+  masked?: string;
+};
 
 export class StaticProxyProvider implements ProxyProvider {
   constructor(private readonly profiles: Map<string, ProxyProfile>) {}
@@ -114,6 +129,69 @@ export function proxyToPlaywright(profile: ProxyProfile): { server: string; user
 export function maskProxy(profile: ProxyProfile): string {
   const auth = profile.username ? `${profile.username}:***@` : "";
   return `${profile.protocol}://${auth}${profile.host}:${profile.port}`;
+}
+
+export function loadProxyProfileFromEnv(
+  env: ProxyEnv = process.env,
+  defaults: Partial<ProxyProfile> = {}
+): ProxyProfile | undefined {
+  const singleString = env.CARTTRUTH_TORCH_ISP_PROXY?.trim();
+  if (singleString) {
+    return parseProxyString(singleString, {
+      id: defaults.id ?? DEFAULT_TORCH_PROXY_PROFILE_ID,
+      protocol: defaults.protocol ?? "http",
+      poolType: defaults.poolType ?? "isp",
+      country: defaults.country ?? env.CARTTRUTH_PROXY_COUNTRY ?? "US",
+      source: defaults.source ?? "torchproxies"
+    });
+  }
+
+  const host = env.CARTTRUTH_PROXY_HOST?.trim();
+  const port = env.CARTTRUTH_PROXY_PORT?.trim();
+  if (!host || !port) {
+    return undefined;
+  }
+
+  return parseProxyString(`${host}:${port}:${env.CARTTRUTH_PROXY_USERNAME ?? ""}:${env.CARTTRUTH_PROXY_PASSWORD ?? ""}`, {
+    id: defaults.id ?? "env-proxy",
+    protocol: (defaults.protocol ?? env.CARTTRUTH_PROXY_PROTOCOL ?? "http") as ProxyProfile["protocol"],
+    poolType: defaults.poolType ?? "unknown",
+    country: defaults.country ?? env.CARTTRUTH_PROXY_COUNTRY,
+    source: defaults.source ?? "env"
+  });
+}
+
+export function proxySummary(profile: ProxyProfile | undefined): ProxySummary {
+  if (!profile) {
+    return {
+      enabled: false,
+      fingerprint: "none"
+    };
+  }
+
+  return {
+    enabled: true,
+    fingerprint: proxyFingerprint(profile),
+    id: profile.id,
+    source: profile.source,
+    poolType: profile.poolType,
+    ...(profile.country ? { country: profile.country } : {}),
+    masked: maskProxy(profile)
+  };
+}
+
+function proxyFingerprint(profile: ProxyProfile): string {
+  return createHash("sha256").update(JSON.stringify({
+    id: profile.id,
+    protocol: profile.protocol,
+    host: profile.host,
+    port: profile.port,
+    username: profile.username ?? "",
+    password: profile.password ?? "",
+    poolType: profile.poolType,
+    country: profile.country ?? "",
+    source: profile.source
+  })).digest("hex");
 }
 
 export async function testProxyConnectivity(

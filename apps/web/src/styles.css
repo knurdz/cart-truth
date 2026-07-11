@@ -274,9 +274,32 @@ pre {
   background: #c2410c;
 }
 
+.browser-link {
+  display: block;
+  margin-top: 10px;
+  border: 1px solid #0f766e;
+  border-radius: 6px;
+  padding: 9px 12px;
+  color: #0f5f55;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
 .message,
 .empty {
   color: #61717d;
+}
+
+.attention-message {
+  margin: 10px 0 0;
+  border: 1px solid #f2c94c;
+  border-radius: 6px;
+  background: #fff7d6;
+  padding: 9px 10px;
+  color: #7a4f00;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .price-section,

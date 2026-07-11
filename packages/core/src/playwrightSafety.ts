@@ -7,7 +7,10 @@ export const BLOCKER_TEXT =
   /\b(captcha|verify\s+you\s+are\s+(a\s+)?human|robot|access\s+denied|temporarily\s+blocked|unusual\s+traffic|are\s+you\s+human)\b/i;
 
 export const LOGIN_REQUIRED_TEXT =
-  /\b(sign\s+in|log\s+in|enter\s+your\s+password|verification\s+code|two[-\s]?step|multi[-\s]?factor|mfa)\b/i;
+  /\b(sign\s+in|log\s+in|please\s+login|login\s+with\s+password|enter\s+your\s+password|phone\s+number\s+or\s+email|forgot\s+password|verification\s+code|two[-\s]?step|multi[-\s]?factor|mfa)\b/i;
+
+export const LOGIN_REQUIRED_URL =
+  /(?:\/user\/login(?:[/?#]|$)|\/account\/login(?:[/?#]|$)|\/login(?:[/?#]|$)|\/signin(?:[/?#]|$)|member\.daraz\.[^/]+\/user\/login)/i;
 
 export function assertSafeActionLabel(label: string): void {
   if (FORBIDDEN_PURCHASE_TEXT.test(label)) {
@@ -52,7 +55,15 @@ export function classifyPageText(text: string): "captcha" | "blocked" | "login_r
   return undefined;
 }
 
+export function classifyPageUrl(url: string): "login_required" | undefined {
+  return LOGIN_REQUIRED_URL.test(url) ? "login_required" : undefined;
+}
+
 export async function classifyPageState(page: Page): Promise<"captcha" | "blocked" | "login_required" | undefined> {
+  const urlState = classifyPageUrl(page.url());
+  if (urlState) {
+    return urlState;
+  }
   const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
   return classifyPageText(bodyText);
 }

@@ -5,11 +5,16 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApiApp } from "../apps/web/src/api.js";
 import { LocalRuntime, type DarazSessionCaptureManager } from "../apps/web/src/runtime.js";
+import { parseProxyString } from "@carttruth/core";
 import type { DarazCheckRequest, DarazCheckResult, DarazSearchResult } from "@carttruth/schemas";
 
 let server: Server;
 let baseUrl: string;
 let runsDir: string;
+let sessionsDir: string;
+let sqlitePath: string;
+let runtime: LocalRuntime;
+let cookie = "";
 
 const fakeSearchResult: DarazSearchResult = {
   id: "item-1",
@@ -21,8 +26,19 @@ const fakeSearchResult: DarazSearchResult = {
 
 beforeEach(async () => {
   runsDir = await mkdtemp(join(tmpdir(), "daraz-api-"));
-  const runtime = new LocalRuntime({
+  sessionsDir = await mkdtemp(join(tmpdir(), "daraz-api-sessions-"));
+  const dbDir = await mkdtemp(join(tmpdir(), "daraz-api-db-"));
+  sqlitePath = join(dbDir, "carttruth.db");
+  runtime = new LocalRuntime({
     runsDir,
+    sessionsDir,
+    sqlitePath,
+    proxyProfile: parseProxyString("http://user_abc:secret@proxy.example:61234", {
+      id: "torch-isp-trial",
+      poolType: "isp",
+      country: "US",
+      source: "torchproxies"
+    }),
     darazService: {
       async search() {
         return [fakeSearchResult];
@@ -54,6 +70,9 @@ beforeEach(async () => {
     },
     sessionCapture: new FakeDarazSessionCapture()
   });
+  process.env.CARTTRUTH_ADMIN_USERNAME = "admin";
+  process.env.CARTTRUTH_ADMIN_PASSWORD = "password123";
+  await runtime.bootstrap();
   server = createServer(createApiApp(runtime));
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const address = server.address();
@@ -61,14 +80,31 @@ beforeEach(async () => {
     throw new Error("Failed to start test server");
   }
   baseUrl = `http://127.0.0.1:${address.port}`;
+  cookie = await login();
 });
 
 afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  await runtime.close();
   await rm(runsDir, { recursive: true, force: true });
+  await rm(sessionsDir, { recursive: true, force: true });
+  await rm(join(sqlitePath, ".."), { recursive: true, force: true });
+  delete process.env.CARTTRUTH_ADMIN_USERNAME;
+  delete process.env.CARTTRUTH_ADMIN_PASSWORD;
+  cookie = "";
 });
 
 describe("Daraz API", () => {
+  it("reports masked proxy status in health", async () => {
+    const response = await get("/api/health");
+    expect(response.proxy).toEqual(expect.objectContaining({
+      enabled: true,
+      id: "torch-isp-trial",
+      masked: "http://user_abc:***@proxy.example:61234"
+    }));
+    expect(JSON.stringify(response.proxy)).not.toContain("secret");
+  });
+
   it("searches products", async () => {
     const response = await post("/api/daraz/search", { query: "phone" });
     expect(response.results[0].title).toBe("Sample Daraz Product");
@@ -80,8 +116,9 @@ describe("Daraz API", () => {
   });
 
   it("checks selected products", async () => {
-    const response = await post("/api/daraz/check", { products: [{ ...fakeSearchResult, quantity: 1 }] });
+    const response = await post("/api/daraz/check", { products: [{ ...fakeSearchResult, quantity: 5 }] });
     expect(response.status).toBe("checked");
+    expect(response.products[0].quantity).toBe(1);
     expect(response.products[0].checkoutLinePrice.minorUnits).toBe(123400);
   });
 
@@ -89,61 +126,91 @@ describe("Daraz API", () => {
     const started = await post("/api/daraz/session/start", {});
     expect(started.captureId).toBe("fake-daraz-capture");
     expect(started.profilePath).toContain("default-profile");
+    expect(started.browserUrl).toBe("/vnc/fake-token/vnc.html");
     const saved = await post("/api/daraz/session/save", { captureId: started.captureId });
     expect(saved.exists).toBe(true);
   });
 
   it("lists and reads Daraz runs", async () => {
-    const runDir = join(runsDir, "daraz-existing-run");
-    await mkdir(runDir, { recursive: true });
-    await writeFile(join(runDir, "result.json"), JSON.stringify({
-      runId: "daraz-existing-run",
-      status: "checked",
-      startedAt: "2026-06-22T00:00:00.000Z",
-      finishedAt: "2026-06-22T00:00:01.000Z",
-      products: [],
-      evidence: []
-    }));
+    await post("/api/daraz/check", { products: [{ ...fakeSearchResult, quantity: 1 }] });
 
     const runs = await get("/api/daraz/runs");
-    expect(runs.some((run: { runId: string }) => run.runId === "daraz-existing-run")).toBe(true);
-    const detail = await get("/api/daraz/runs/daraz-existing-run");
-    expect(detail.runId).toBe("daraz-existing-run");
+    expect(runs.some((run: { runId: string }) => run.runId === "daraz-test-run")).toBe(true);
+    const detail = await get("/api/daraz/runs/daraz-test-run");
+    expect(detail.runId).toBe("daraz-test-run");
+  });
+
+  it("requires login for protected Daraz endpoints", async () => {
+    const previous = cookie;
+    cookie = "";
+    const response = await post("/api/daraz/search", { query: "phone" });
+    expect(response.error).toBe("Login required.");
+    cookie = previous;
   });
 });
 
 async function get(path: string) {
-  const response = await fetch(`${baseUrl}${path}`);
+  const response = await fetch(`${baseUrl}${path}`, {
+    headers: cookie ? { cookie } : {}
+  });
   return response.json();
 }
 
 async function post(path: string, body: unknown) {
   const response = await fetch(`${baseUrl}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(cookie ? { cookie } : {})
+    },
     body: JSON.stringify(body)
   });
   return response.json();
 }
 
+async function login(): Promise<string> {
+  const response = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "password123" })
+  });
+  const setCookie = response.headers.get("set-cookie");
+  if (!setCookie) {
+    throw new Error("Login did not set a cookie");
+  }
+  return setCookie.split(";")[0] ?? "";
+}
+
 class FakeDarazSessionCapture implements DarazSessionCaptureManager {
-  async start(profilePath: string) {
+  async start(_userId: string, profilePath: string) {
     return {
       captureId: "fake-daraz-capture",
       loginUrl: "https://member.daraz.lk/user/login",
       profilePath,
-      storagePath: profilePath
+      storagePath: profilePath,
+      browserUrl: "/vnc/fake-token/vnc.html"
     };
   }
 
-  async save(captureId: string) {
+  async save(_userId: string, captureId: string) {
     return {
       captureId,
       profilePath: "/tmp/daraz-profile",
       storagePath: "/tmp/daraz-profile",
-      exists: true
+      exists: true,
+      session: { status: "saved" as const, live: true, captureId }
     };
   }
+
+  activeCapture(_userId: string) {
+    return undefined;
+  }
+
+  activeContext(_userId: string) {
+    return undefined;
+  }
+
+  async reset(_userId: string) {}
 
   async close() {}
 }

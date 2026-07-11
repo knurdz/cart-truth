@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocalEvidenceStore } from "@carttruth/core";
 import {
   DarazService,
+  buildDarazCheckoutExtractionScript,
+  buildDarazCartIsolationScript,
+  buildDarazCartVerificationScript,
   darazProfilePath,
   darazProfileReadyPath,
   extractDarazProductFromHtml,
@@ -77,10 +80,10 @@ describe("Daraz helpers", () => {
     const result = extractDarazCheckoutPricesFromText(
       [
         "Sample Daraz Product",
-        "Qty 2",
-        "Rs. 5,000",
+        "Qty 1",
+        "Rs. 2,500",
         "Items Total",
-        "Rs. 5,000",
+        "Rs. 2,500",
         "Delivery Fee",
         "Rs. 250",
         "Platform Fee",
@@ -88,26 +91,27 @@ describe("Daraz helpers", () => {
         "Voucher Discount",
         "-Rs. 100",
         "Order Total",
-        "Rs. 5,249"
+        "Rs. 2,749"
       ].join("\n"),
       [{
         id: "item-1",
         title: "Sample Daraz Product",
         url: "https://www.daraz.lk/products/sample-i1-s1.html",
         observedPrice: { currency: "LKR", minorUnits: 250000 },
-        quantity: 2
+        quantity: 1
       }]
     );
 
     expect(result.products[0]?.status).toBe("checked");
-    expect(result.products[0]?.checkoutLinePrice).toEqual({ currency: "LKR", minorUnits: 500000 });
-    expect(result.checkoutTotal).toEqual({ currency: "LKR", minorUnits: 524900 });
+    expect(result.products[0]?.quantity).toBe(1);
+    expect(result.products[0]?.checkoutLinePrice).toEqual({ currency: "LKR", minorUnits: 250000 });
+    expect(result.checkoutTotal).toEqual({ currency: "LKR", minorUnits: 274900 });
     expect(result.priceBreakdown).toEqual(expect.arrayContaining([
-      { label: "Items Total", kind: "product_subtotal", amount: { currency: "LKR", minorUnits: 500000 } },
+      { label: "Items Total", kind: "product_subtotal", amount: { currency: "LKR", minorUnits: 250000 } },
       { label: "Delivery Fee", kind: "delivery", amount: { currency: "LKR", minorUnits: 25000 } },
       { label: "Platform Fee", kind: "platform_fee", amount: { currency: "LKR", minorUnits: 9900 } },
       { label: "Voucher Discount", kind: "voucher", amount: { currency: "LKR", minorUnits: -10000 } },
-      { label: "Order Total", kind: "total", amount: { currency: "LKR", minorUnits: 524900 } }
+      { label: "Order Total", kind: "total", amount: { currency: "LKR", minorUnits: 274900 } }
     ]));
     expect(result.globalAdjustments).toEqual(expect.arrayContaining([
       { label: "Delivery Fee", kind: "shipping", amount: { currency: "LKR", minorUnits: 25000 } },
@@ -153,6 +157,169 @@ describe("Daraz helpers", () => {
       { label: "Platform Fee", kind: "platform_fee", amount: { currency: "LKR", minorUnits: 1500 } },
       { label: "Total", kind: "total", amount: { currency: "LKR", minorUnits: 106000 } }
     ]));
+  });
+
+  it("classifies Daraz online fees as service fees", () => {
+    const result = extractDarazCheckoutPricesFromText(
+      [
+        "Sample Daraz Product",
+        "Rs. 1,000",
+        "Items Total",
+        "Rs. 1,000",
+        "Online Fee",
+        "Rs. 20",
+        "Applicable Coupon",
+        "-Rs. 50",
+        "Order Total",
+        "Rs. 970"
+      ].join("\n"),
+      [{
+        id: "item-1",
+        title: "Sample Daraz Product",
+        url: "https://www.daraz.lk/products/sample-i1-s1.html",
+        observedPrice: { currency: "LKR", minorUnits: 100000 },
+        quantity: 1
+      }]
+    );
+
+    expect(result.priceBreakdown).toEqual(expect.arrayContaining([
+      { label: "Online Fee", kind: "service_fee", amount: { currency: "LKR", minorUnits: 2000 } },
+      { label: "Applicable Coupon", kind: "voucher", amount: { currency: "LKR", minorUnits: -5000 } }
+    ]));
+  });
+
+  it("builds cart isolation browser scripts without transpiler helpers", () => {
+    const productKeys = [{
+      title: "Sample Daraz Product",
+      key: "sample daraz product",
+      shortKey: "sample daraz product",
+      idKey: "1 1",
+      urlKey: "https www daraz lk products sample i1 s1 html",
+      quantity: 1
+    }];
+
+    expect(buildDarazCartIsolationScript(productKeys)).not.toContain("__name");
+    expect(buildDarazCartVerificationScript(productKeys)).not.toContain("__name");
+    expect(buildDarazCheckoutExtractionScript(productKeys)).not.toContain("__name");
+    expect(buildDarazCartVerificationScript(productKeys)).toContain("unmatchedSelectedRows");
+    expect(buildDarazCartVerificationScript(productKeys)).toContain("checked_non_product_control");
+    expect(buildDarazCartIsolationScript(productKeys)).toContain("quantityAdjustments");
+    expect(buildDarazCartIsolationScript(productKeys)).toContain("selectMostSpecificProductRows");
+    expect(buildDarazCartIsolationScript(productKeys)).toContain("clickTargetFor");
+    expect(buildDarazCartIsolationScript(productKeys)).toContain("select_expected");
+    expect(buildDarazCartIsolationScript(productKeys)).toContain("deselect_unexpected");
+    expect(buildDarazCartIsolationScript(productKeys)).toContain("assumed_single_quantity_until_checkout");
+    expect(buildDarazCartIsolationScript(productKeys)).toContain("aria-valuenow");
+    expect(buildDarazCartVerificationScript(productKeys)).toContain("nonProductRowReason");
+    expect(buildDarazCartVerificationScript(productKeys)).toContain("non_product_promo_row");
+    expect(buildDarazCartVerificationScript(productKeys)).toContain("spend\\s+rs");
+    expect(buildDarazCartVerificationScript(productKeys)).toContain("missing_selected_titles");
+  });
+
+  it("uses a confirmed single-product item subtotal when the checkout title is missing", () => {
+    const result = extractDarazCheckoutPricesFromText(
+      [
+        "Order Summary",
+        "Items Total (1 Items)",
+        "Rs. 796",
+        "Delivery Fee",
+        "Rs. 345",
+        "Total",
+        "Rs. 1,141"
+      ].join("\n"),
+      [{
+        id: "item-1",
+        title: "Sample Daraz Product",
+        url: "https://www.daraz.lk/products/sample-i1-s1.html",
+        observedPrice: { currency: "LKR", minorUnits: 70000 },
+        quantity: 1
+      }]
+    );
+
+    expect(result.products[0]?.status).toBe("checked");
+    expect(result.products[0]?.checkoutLinePrice).toEqual({ currency: "LKR", minorUnits: 79600 });
+  });
+
+  it("uses structured checkout rows for one-unit displayed prices", () => {
+    const result = extractDarazCheckoutPricesFromText(
+      [
+        "Sample Daraz Product",
+        "Qty: 1",
+        "Order Summary",
+        "Items Total (1 Items)",
+        "Rs. 796",
+        "Total",
+        "Rs. 796"
+      ].join("\n"),
+      [{
+        id: "item-1",
+        title: "Sample Daraz Product",
+        url: "https://www.daraz.lk/products/sample-i1-s1.html",
+        observedPrice: { currency: "LKR", minorUnits: 79600 },
+        quantity: 1
+      }],
+      [{
+        text: "Sample Daraz Product Rs. 796 Qty: 1",
+        matchedTitles: ["Sample Daraz Product"],
+        quantity: 1,
+        priceTexts: ["Rs. 796"]
+      }]
+    );
+
+    expect(result.products[0]?.status).toBe("checked");
+    expect(result.products[0]?.quantity).toBe(1);
+    expect(result.products[0]?.checkoutUnitPrice).toEqual({ currency: "LKR", minorUnits: 79600 });
+    expect(result.products[0]?.checkoutLinePrice).toEqual({ currency: "LKR", minorUnits: 79600 });
+  });
+
+  it("flags a structured checkout row when Daraz still shows a merged quantity", () => {
+    const result = extractDarazCheckoutPricesFromText(
+      [
+        "Sample Daraz Product",
+        "Qty: 2",
+        "Order Summary",
+        "Items Total (2 Items)",
+        "Rs. 1,592"
+      ].join("\n"),
+      [{
+        id: "item-1",
+        title: "Sample Daraz Product",
+        url: "https://www.daraz.lk/products/sample-i1-s1.html",
+        observedPrice: { currency: "LKR", minorUnits: 79600 },
+        quantity: 1
+      }],
+      [{
+        text: "Sample Daraz Product Rs. 796 Qty: 2",
+        matchedTitles: ["Sample Daraz Product"],
+        quantity: 2,
+        priceTexts: ["Rs. 796"]
+      }]
+    );
+
+    expect(result.products[0]?.status).toBe("needs_attention");
+    expect(result.products[0]?.note).toContain("quantity");
+  });
+
+  it("flags a single selected product when Daraz checkout reports extra items", () => {
+    const result = extractDarazCheckoutPricesFromText(
+      [
+        "Order Summary",
+        "Items Total (2 Items)",
+        "Rs. 1,592",
+        "Total",
+        "Rs. 1,592"
+      ].join("\n"),
+      [{
+        id: "item-1",
+        title: "Sample Daraz Product",
+        url: "https://www.daraz.lk/products/sample-i1-s1.html",
+        observedPrice: { currency: "LKR", minorUnits: 79600 },
+        quantity: 1
+      }]
+    );
+
+    expect(result.products[0]?.status).toBe("needs_attention");
+    expect(result.products[0]?.note).toContain("item count");
   });
 
   it("does not reuse observed price as checkout price when checkout extraction fails", () => {

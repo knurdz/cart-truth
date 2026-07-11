@@ -1,0 +1,11 @@
+{$CARTTRUTH_DOMAIN:carttruth.knurdz.org} {
+  encode zstd gzip
+
+  reverse_proxy carttruth:5173
+
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy same-origin
+    Permissions-Policy geolocation=(), microphone=(), camera=()
+  }
+}
