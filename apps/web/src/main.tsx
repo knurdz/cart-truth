@@ -1263,102 +1263,336 @@ function DonutChart({
    DASHBOARD SHELL — sidebar layout
    ============================================================ */
 function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: () => Promise<void>; onNavigate: (path: string) => void }) {
-  const [tab, setTab] = useState<"links" | "settings" | "admin" | "messages">("links");
+  const [tab, setTab] = useState<"dashboard" | "products" | "session" | "messages" | "admin" | "settings">("dashboard");
 
-  const navLabel = tab === "admin" ? "Users" : tab === "messages" ? "Messages" : tab === "settings" ? "Settings" : "Dashboard";
+  // Shared states for dashboard functional logic
+  const [productUrl, setProductUrl] = useState("");
+  const [links, setLinks] = useState<SavedLink[]>([]);
+  const [darazSession, setDarazSession] = useState<DarazSession>({ status: "missing" });
+  const [captureId, setCaptureId] = useState("");
+  const [browserUrl, setBrowserUrl] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [history, setHistory] = useState<DarazCheckResult[]>([]);
+  const [latest, setLatest] = useState<DarazCheckResult | undefined>();
+  const [credentials, setCredentials] = useState<DarazCredentialStatus>({ saved: false });
+  const [addingLink, setAddingLink] = useState(false);
+  const [activeJob, setActiveJob] = useState<PriceCheckJob | undefined>();
+  const [message, setMessage] = useState("");
+
+  // Search and Modal states
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [darkMode, setDarkMode] = useState(false);
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const hasSavedCredentialsForExpiredSession = credentials.saved && darazSession.status !== "saved";
+
+  async function refresh() {
+    const [session, saved, runs, credentialStatus] = await Promise.all([
+      fetchJson<DarazSession>("/api/daraz/session/status"),
+      fetchJson<{ links: SavedLink[] }>("/api/links"),
+      fetchJson<DarazCheckResult[]>("/api/daraz/runs"),
+      fetchJson<DarazCredentialStatus>("/api/daraz/credentials")
+    ]);
+    setDarazSession(session);
+    setCaptureId(session.captureId ?? "");
+    setBrowserUrl(session.browserUrl ?? (session.live ? browserUrl : ""));
+    setLinks(saved.links);
+    setHistory(runs);
+    setCredentials(credentialStatus);
+    if (!latest && runs[0]) {
+      setLatest(runs[0]);
+    }
+  }
+
+  async function addLink(event: React.FormEvent) {
+    event.preventDefault();
+    setAddingLink(true);
+    setMessage("Reading product page price...");
+    try {
+      const response = await postJson<{ link: SavedLink; checkJob: PriceCheckJob; message?: string }>("/api/links", { url: productUrl.trim() });
+      if (response.link) {
+        setLinks((items) => [response.link!, ...items.filter((item) => item.id !== response.link!.id)]);
+      }
+      setProductUrl("");
+      setMessage("Final checkout price check queued.");
+      setShowCreateModal(false);
+      await trackPriceCheckJob(response.checkJob.id);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAddingLink(false);
+    }
+  }
+
+  async function removeLink(linkId: string) {
+    await fetchJson(`/api/links/${linkId}`, { method: "DELETE" });
+    await refresh();
+  }
+
+  async function startDarazLogin() {
+    setMessage("Opening your Daraz browser session...");
+    try {
+      const response = await postJson<{ captureId: string; browserUrl?: string }>("/api/daraz/session/start", {});
+      setCaptureId(response.captureId);
+      setBrowserUrl(response.browserUrl ?? "");
+      setMessage("Daraz browser opened on the server. Complete login or verification there, then save.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function saveDarazLogin() {
+    if (!captureId) return;
+    try {
+      const response = await postJson<{ session?: DarazSession }>("/api/daraz/session/save", { captureId });
+      setDarazSession(response.session ?? { status: "saved" });
+      setMessage("Your Daraz session was saved.");
+    } catch (error) {
+      await refresh().catch(() => undefined);
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function resetDarazLogin() {
+    const session = await postJson<DarazSession>("/api/daraz/session/reset", {});
+    setDarazSession(session);
+    setCaptureId("");
+    setBrowserUrl("");
+    setMessage("Daraz session reset.");
+  }
+
+  async function stopDarazBrowser() {
+    const session = await postJson<DarazSession>("/api/daraz/session/stop", {});
+    setDarazSession(session);
+    setCaptureId("");
+    setBrowserUrl("");
+    setMessage("Remote Daraz browser closed.");
+  }
+
+  async function checkAllLinks() {
+    if (links.length === 0) {
+      setMessage("Save at least one Daraz link first.");
+      return;
+    }
+    setChecking(true);
+    setMessage(hasSavedCredentialsForExpiredSession ? "Reconnecting to Daraz..." : "Queueing saved-link check...");
+    try {
+      const response = await postJson<{ job: PriceCheckJob }>("/api/links/check-jobs", {});
+      await trackPriceCheckJob(response.job.id);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function handleDarazSessionAction(response: DarazSessionActionResponse) {
+    setBrowserUrl(response.browserUrl ?? response.session?.browserUrl ?? "");
+    setCaptureId(response.session?.captureId ?? "");
+    setDarazSession(response.session ?? darazSession);
+    setMessage(response.message ?? "Daraz needs verification. Open the remote browser, finish it, then save session.");
+  }
+
+  async function trackPriceCheckJob(jobId: string) {
+    let current: PriceCheckJob | undefined;
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const response = await fetchJson<{ job: PriceCheckJob }>(`/api/price-check-jobs/${jobId}`);
+      current = response.job;
+      setActiveJob(current);
+      if (current.status === "queued") {
+        setMessage("Final checkout price check queued.");
+      } else if (current.status === "running") {
+        setMessage(hasSavedCredentialsForExpiredSession ? "Reconnecting to Daraz..." : "Checking final checkout price...");
+      } else {
+        break;
+      }
+      await delay(1000);
+    }
+
+    if (!current) {
+      return;
+    }
+    if (current.status === "needs_user_action") {
+      await handleDarazSessionAction({
+        status: "needs_user_action",
+        message: current.message,
+        session: current.session,
+        browserUrl: current.session?.browserUrl
+      });
+      await refresh().catch(() => undefined);
+      return;
+    }
+    if (current.status === "completed" && current.runId) {
+      const result = await fetchJson<DarazCheckResult>(`/api/daraz/runs/${current.runId}`);
+      setLatest(result);
+      setMessage(current.message ?? "Product page price and final checkout price updated.");
+      await refresh();
+      return;
+    }
+    setMessage(current.message ?? plainStatus(current.status));
+    await refresh().catch(() => undefined);
+  }
+
+  const navLabel = 
+    tab === "dashboard" ? "Dashboard" :
+    tab === "products" ? "Products" :
+    tab === "session" ? "Customers" : 
+    tab === "messages" ? "Shop" : 
+    tab === "admin" ? "Income" : 
+    tab === "settings" ? "Promote" : "Settings";
+
+  // Handle setting body class for dark mode dynamically
+  useEffect(() => {
+    if (darkMode) {
+      document.body.classList.add("dark-theme");
+    } else {
+      document.body.classList.remove("dark-theme");
+    }
+  }, [darkMode]);
 
   return (
-    <div className="db-shell">
+    <div className={`db-shell ${darkMode ? "dark-theme" : ""}`}>
       {/* ── SIDEBAR ── */}
       <aside className="db-sidebar">
         <div className="db-sidebar-logo">
-          <img src="/favicon.svg" className="db-sidebar-logo-mark" alt="CartTruth" />
-          <span className="db-sidebar-logo-text">CartTruth</span>
+          <div className="logo-quadrant-circle">
+            <div className="quadrant q1" />
+            <div className="quadrant q2" />
+            <div className="quadrant q3" />
+            <div className="quadrant q4" />
+          </div>
+          <span className="db-sidebar-logo-text">Dashboard</span>
         </div>
 
         <nav className="db-sidebar-nav">
-          <p className="db-sidebar-section-label">Pages</p>
           <SidebarNavItem
-            icon={<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" /></svg>}
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                <rect x="3" y="3" width="7" height="9" />
+                <rect x="14" y="3" width="7" height="5" />
+                <rect x="14" y="12" width="7" height="9" />
+                <rect x="3" y="16" width="7" height="5" />
+              </svg>
+            }
             label="Dashboard"
-            active={tab === "links"}
-            onClick={() => setTab("links")}
+            active={tab === "dashboard"}
+            onClick={() => setTab("dashboard")}
           />
           <SidebarNavItem
-            icon={<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>}
-            label="Settings"
-            active={tab === "settings"}
-            onClick={() => setTab("settings")}
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                <line x1="12" y1="22.08" x2="12" y2="12" />
+              </svg>
+            }
+            label="Products"
+            active={tab === "products"}
+            onClick={() => setTab("products")}
+          />
+          <SidebarNavItem
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            }
+            label="Customers"
+            active={tab === "session"}
+            onClick={() => setTab("session")}
           />
           {user.role === "admin" && (
             <SidebarNavItem
-              icon={<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" /></svg>}
-              label="Users"
-              active={tab === "admin"}
-              onClick={() => setTab("admin")}
-            />
-          )}
-          {user.role === "admin" && (
-            <SidebarNavItem
-              icon={<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fillRule="evenodd" d="M2.94 6.412A2 2 0 002 8.108V16a2 2 0 002 2h12a2 2 0 002-2V8.108a2 2 0 00-.94-1.696l-6-3.75a2 2 0 00-2.12 0l-6 3.75zm2.615 2.423a1 1 0 10-1.11 1.664l5 3.333a1 1 0 001.11 0l5-3.333a1 1 0 00-1.11-1.664L10 11.798 5.555 8.835z" clipRule="evenodd" /></svg>}
-              label="Messages"
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                  <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <path d="M16 10a4 4 0 0 1-8 0" />
+                </svg>
+              }
+              label="Shop"
               active={tab === "messages"}
               onClick={() => setTab("messages")}
             />
           )}
-
-          <p className="db-sidebar-section-label" style={{ marginTop: 20 }}>Account Pages</p>
+          {user.role === "admin" && (
+            <SidebarNavItem
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                  <line x1="12" y1="1" x2="12" y2="23" />
+                  <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                </svg>
+              }
+              label="Income"
+              active={tab === "admin"}
+              onClick={() => setTab("admin")}
+            />
+          )}
           <SidebarNavItem
-            icon={<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-6-3a2 2 0 11-4 0 2 2 0 014 0zm-2 4a5 5 0 00-4.546 2.916A5.986 5.986 0 0010 16a5.986 5.986 0 004.546-2.084A5 5 0 0010 11z" clipRule="evenodd" /></svg>}
-            label="Profile"
-            active={false}
-            onClick={() => { /* profile page */ }}
-          />
-          <SidebarNavItem
-            icon={<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" /></svg>}
-            label="Sign Out"
-            active={false}
-            onClick={() => void onLogout()}
-          />
-          <SidebarNavItem
-            icon={<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" /></svg>}
-            label="API Docs"
-            active={false}
-            onClick={() => onNavigate("/docs")}
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            }
+            label="Promote"
+            active={tab === "settings"}
+            onClick={() => setTab("settings")}
           />
         </nav>
 
-        <div className="db-sidebar-user">
-          <div className="db-sidebar-avatar">
-            {user.avatarUrl
-              ? <img src={user.avatarUrl} alt={displayUser(user)} />
-              : <span>{(displayUser(user)[0] ?? "U").toUpperCase()}</span>
-            }
-          </div>
-          <div className="db-sidebar-user-info">
-            <p className="db-sidebar-user-name">{user.displayName ?? user.username}</p>
-            <p className="db-sidebar-user-role">{user.role}</p>
-          </div>
+        {/* Bottom Sidebar Utility Icons */}
+        <div className="db-sidebar-bottom">
+          <button type="button" className="sidebar-bottom-btn" onClick={() => { if (user.role === "admin") setTab("messages"); }} title="Messages">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </button>
+          <button type="button" className={`sidebar-bottom-btn ${darkMode ? "active" : ""}`} onClick={() => setDarkMode(true)} title="Dark Mode">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </button>
+          <button type="button" className={`sidebar-bottom-btn ${!darkMode ? "active" : ""}`} onClick={() => setDarkMode(false)} title="Light Mode">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          </button>
         </div>
       </aside>
 
       {/* ── MAIN CONTENT ── */}
       <div className="db-main">
-        {/* Topbar */}
+        {/* Topbar/Header */}
         <div className="db-topbar">
-          <div className="db-topbar-breadcrumb">
-            <span className="db-topbar-pages">Pages</span>
-            <span className="db-topbar-sep">/</span>
-            <span className="db-topbar-current">{navLabel}</span>
-          </div>
+          <h1 className="db-topbar-title">{navLabel}</h1>
           <div className="db-topbar-right">
             <div className="db-topbar-search">
               <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14" style={{ color: "#94a3b8" }}>
                 <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
               </svg>
-              <input type="text" placeholder="Type here..." className="db-topbar-search-input" />
+              <input 
+                type="text" 
+                placeholder="Search anything..." 
+                className="db-topbar-search-input" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
             </div>
-            <div className="db-topbar-avatar">
+            <button type="button" className="db-btn-create" onClick={() => setShowCreateModal(true)}>
+              Create
+            </button>
+            <div className="header-icon-btn" title="Notifications">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+              </svg>
+            </div>
+            <div className="header-icon-btn" onClick={() => { if (user.role === "admin") setTab("messages"); }} title="Chat">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <div className="db-topbar-avatar" onClick={() => onLogout()} title="Sign Out">
               {user.avatarUrl
                 ? <img src={user.avatarUrl} alt={displayUser(user)} />
                 : <span>{(displayUser(user)[0] ?? "U").toUpperCase()}</span>
@@ -1367,19 +1601,619 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
           </div>
         </div>
 
-        {/* Page heading */}
+        {/* Content area */}
         <div className="db-content">
-          <div className="db-page-header">
-            <h1 className="db-page-title">{navLabel}</h1>
-            <p className="db-page-sub">
-              {tab === "links" && "Monitor your Daraz product prices and checkout totals."}
-              {tab === "settings" && "Configure auto-check schedules, proxy settings, and API keys."}
-              {tab === "admin" && "Manage users, proxy operations, and system events."}
-              {tab === "messages" && "View contact messages sent from the public website."}
-            </p>
+          {tab === "dashboard" && (
+            <DashboardOverview 
+              links={links} 
+              history={history} 
+              latest={latest} 
+              darazSession={darazSession} 
+              onNavigate={setTab} 
+            />
+          )}
+          {tab === "products" && (
+            <ProductsPanel 
+              links={links} 
+              searchQuery={searchQuery} 
+              history={history} 
+              latest={latest} 
+              removeLink={removeLink} 
+              checking={checking} 
+              checkAllLinks={checkAllLinks} 
+              activeJob={activeJob} 
+              message={message} 
+            />
+          )}
+          {tab === "session" && (
+            <SessionPanel 
+              darazSession={darazSession} 
+              credentials={credentials} 
+              captureId={captureId} 
+              browserUrl={browserUrl} 
+              startDarazLogin={startDarazLogin} 
+              saveDarazLogin={saveDarazLogin} 
+              resetDarazLogin={resetDarazLogin} 
+              stopDarazBrowser={stopDarazBrowser} 
+              checking={checking} 
+              checkAllLinks={checkAllLinks} 
+              activeJob={activeJob} 
+              message={message} 
+            />
+          )}
+          {tab === "messages" && user.role === "admin" && <MessagesPanel />}
+          {tab === "admin" && user.role === "admin" && <AdminPanel />}
+          {tab === "settings" && <SettingsPanel />}
+        </div>
+      </div>
+
+      {/* CREATE MODAL */}
+      {showCreateModal && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <div className="modal-header">
+              <h3 className="modal-title">Monitor a New Product</h3>
+              <button 
+                type="button" 
+                className="modal-close" 
+                onClick={() => { setShowCreateModal(false); setMessage(""); }}
+              >
+                &times;
+              </button>
+            </div>
+            <form onSubmit={(e) => void addLink(e)}>
+              <div className="modal-body">
+                <p className="modal-help">
+                  Paste a Daraz product link below. CartTruth will verify the checkout total price (including payment processing fees and delivery charges) regularly.
+                </p>
+                <input
+                  type="text"
+                  value={productUrl}
+                  onChange={(e) => setProductUrl(e.target.value)}
+                  placeholder="https://www.daraz.lk/products/..."
+                  className="modal-input"
+                  required
+                  autoFocus
+                />
+                {message && <p className="modal-message">{message}</p>}
+              </div>
+              <div className="modal-footer">
+                <button 
+                  type="button" 
+                  className="db-btn-secondary" 
+                  onClick={() => { setShowCreateModal(false); setMessage(""); }}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="db-btn-primary" disabled={addingLink}>
+                  {addingLink ? "Saving..." : "Save & Check"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   DASHBOARD OVERVIEW TAB — Stats, Chart, Popular products, Comments
+   ============================================================ */
+function DashboardOverview({
+  links,
+  history,
+  latest,
+  darazSession,
+  onNavigate
+}: {
+  links: SavedLink[];
+  history: DarazCheckResult[];
+  latest: DarazCheckResult | undefined;
+  darazSession: DarazSession;
+  onNavigate: (tab: "dashboard" | "products" | "session" | "messages" | "admin" | "settings") => void;
+}) {
+  const customersCount = links.length ? String(links.length) : "1,293";
+  const balanceVal = latest?.checkoutTotal ? formatMoney(latest.checkoutTotal) : "256k";
+  
+  // Avatars data
+  const avatars = [
+    { name: "Gladyce", url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop" },
+    { name: "Elbert", url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop" },
+    { name: "Dash", url: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop" },
+    { name: "Joyce", url: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100&h=100&fit=crop" },
+    { name: "Marina", url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop" }
+  ];
+
+  // Bar chart hover state
+  const [hoveredBar, setHoveredBar] = useState<number>(4);
+  const chartData = [
+    { label: "Mon", val: "1.2m", height: 40 },
+    { label: "Tue", val: "1.5m", height: 50 },
+    { label: "Wed", val: "0.9m", height: 30 },
+    { label: "Thu", val: "1.8m", height: 60 },
+    { label: "Fri", val: "2.2m", height: 85 }, // selected by default
+    { label: "Sat", val: "1.3m", height: 45 },
+    { label: "Sun", val: "1.6m", height: 55 }
+  ];
+
+  // Popular products list (max 5)
+  const popularProducts = useMemo(() => {
+    const list: Array<{ id: string; title: string; subtitle: string; imageUrl: string; price: string; status: "Active" | "Offline" }> = [];
+    links.forEach((link, idx) => {
+      if (idx < 5) {
+        list.push({
+          id: link.id,
+          title: link.title,
+          subtitle: "Daraz Product",
+          imageUrl: link.imageUrl || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=150&h=150&fit=crop",
+          price: formatMoney(parseObservedPrice(link)),
+          status: darazSession.status === "saved" ? "Active" : "Offline"
+        });
+      }
+    });
+
+    const mockItems = [
+      { id: "mock-1", title: "Crypter - NFT UI Kit", subtitle: "Crypto kit", imageUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&h=150&fit=crop", price: "$3,250.00", status: "Active" as const },
+      { id: "mock-2", title: "Bento Pro 2.0 Illustrations", subtitle: "Illustration kit", imageUrl: "https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?w=150&h=150&fit=crop", price: "$7,890.00", status: "Active" as const },
+      { id: "mock-3", title: "Fleet - travel shopping kit", subtitle: "Travel kit", imageUrl: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=150&h=150&fit=crop", price: "$1,500.00", status: "Offline" as const },
+      { id: "mock-4", title: "SimpleSocial UI Design Kit", subtitle: "Social kit", imageUrl: "https://images.unsplash.com/photo-1527689368864-3a821dbccc34?w=150&h=150&fit=crop", price: "$9,999.99", status: "Active" as const },
+      { id: "mock-5", title: "Bento Pro vol. 2", subtitle: "Illustration kit", imageUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&h=150&fit=crop", price: "$4,750.00", status: "Active" as const }
+    ];
+
+    while (list.length < 5 && mockItems.length > 0) {
+      const item = mockItems.shift()!;
+      if (!list.some(x => x.title === item.title)) {
+        list.push(item);
+      }
+    }
+    return list.slice(0, 5);
+  }, [links, darazSession.status]);
+
+  // Comments / Activity logs (max 3)
+  const activityLogs = useMemo(() => {
+    const list: Array<{ id: string; name: string; avatarUrl: string; target: string; time: string; text: string }> = [];
+    
+    // Convert runs to comments
+    history.forEach((run, idx) => {
+      if (idx < 3) {
+        const timeStr = run.finishedAt ? new Date(run.finishedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "Recently";
+        const avatarIdx = idx % avatars.length;
+        const statusText = run.status === "checked" 
+          ? `Verified price successfully. Checkout total: ${formatMoney(run.checkoutTotal)}`
+          : `Checked price. Run status: ${run.status}.`;
+        list.push({
+          id: run.runId || `run-${idx}`,
+          name: avatars[avatarIdx].name,
+          avatarUrl: avatars[avatarIdx].url,
+          target: run.products[0]?.title.substring(0, 20) + "..." || "Daraz Item",
+          time: timeStr,
+          text: statusText
+        });
+      }
+    });
+
+    const mockComments = [
+      { id: "comment-1", name: "Joyce", avatarUrl: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100&h=100&fit=crop", target: "Bento Pro 2.0", time: "09:00 AM", text: "Great work! When HTML version will be available? ⚡" },
+      { id: "comment-2", name: "Gladyce", avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop", target: "Food Delivery App", time: "08:00 AM", text: "Awesome design, this is really useful..." }
+    ];
+
+    while (list.length < 2 && mockComments.length > 0) {
+      list.push(mockComments.shift()!);
+    }
+
+    return list.slice(0, 2);
+  }, [history]);
+
+  return (
+    <div className="overview-grid">
+      {/* LEFT COLUMN */}
+      <div className="overview-left">
+        {/* Stat Cards Container */}
+        <div className="overview-card-container">
+          <div className="overview-card-header-row">
+            <h2 className="overview-section-title">Overview</h2>
+            <div className="overview-select-wrap">
+              <select className="overview-select">
+                <option>Last month</option>
+                <option>Last week</option>
+              </select>
+            </div>
+          </div>
+          
+          <div className="overview-stats-row">
+            <div className="overview-stat-box">
+              <div className="stat-box-top">
+                <span className="stat-box-label">Customers</span>
+                <span className="stat-box-icon-wrap">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </span>
+              </div>
+              <div className="stat-box-body">
+                <span className="stat-box-val">{customersCount}</span>
+                <div className="stat-box-trend-row">
+                  <span className="stat-box-badge badge-red">
+                    <span className="badge-arrow">↓</span> 36.8%
+                  </span>
+                  <span className="stat-box-sub">vs last month</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="overview-stat-box">
+              <div className="stat-box-top">
+                <span className="stat-box-label">Balance</span>
+                <span className="stat-box-icon-wrap">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                </span>
+              </div>
+              <div className="stat-box-body">
+                <span className="stat-box-val">{balanceVal}</span>
+                <div className="stat-box-trend-row">
+                  <span className="stat-box-badge badge-green">
+                    <span className="badge-arrow">↑</span> 36.8%
+                  </span>
+                  <span className="stat-box-sub">vs last month</span>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {tab === "messages" && user.role === "admin" ? <MessagesPanel /> : tab === "admin" && user.role === "admin" ? <AdminPanel /> : tab === "settings" ? <SettingsPanel /> : <UserPanel />}
+          <div className="overview-banner">
+            <strong className="banner-alert-text">857 new customers today!</strong>
+            <span className="overview-banner-sub">Send a welcome message to all new customers.</span>
+          </div>
+
+          <div className="overview-avatars-row">
+            <div className="avatars-group">
+              {avatars.map((avatar, idx) => (
+                <div className="avatar-wrapper" key={idx} style={{ zIndex: 10 - idx }}>
+                  <img src={avatar.url} alt={avatar.name} className="avatar-img" />
+                  <span className="avatar-name">{avatar.name}</span>
+                </div>
+              ))}
+              <button type="button" className="avatar-view-all" onClick={() => onNavigate("session")}>
+                <span className="arrow-btn-symbol">➔</span>
+                <span className="avatar-name">View all</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Product View Chart Card */}
+        <div className="overview-card-container" style={{ marginTop: 24 }}>
+          <div className="overview-card-header-row">
+            <h2 className="overview-section-title">Product view</h2>
+            <div className="overview-select-wrap">
+              <select className="overview-select">
+                <option>Last 7 days</option>
+                <option>Last 30 days</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="chart-wrapper">
+            <div className="chart-main-val">
+              {latest?.checkoutTotal ? formatMoney(latest.checkoutTotal) : "$10.2m"}
+            </div>
+            
+            <div className="chart-bars-container">
+              {chartData.map((day, idx) => {
+                const isActive = hoveredBar === idx;
+                return (
+                  <div 
+                    className="chart-bar-col" 
+                    key={idx}
+                    onMouseEnter={() => setHoveredBar(idx)}
+                  >
+                    {isActive && (
+                      <div className="chart-tooltip">
+                        <span className="tooltip-text">{day.val}</span>
+                        <span className="tooltip-arrow" />
+                      </div>
+                    )}
+                    <div className="chart-bar-track">
+                      {isActive && <div className="chart-bar-dot" />}
+                      <div 
+                        className={`chart-bar-fill ${isActive ? "active" : ""}`}
+                        style={{ height: `${day.height}%` }}
+                      />
+                    </div>
+                    <span className="chart-bar-label">{day.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* RIGHT COLUMN */}
+      <div className="overview-right">
+        {/* Popular products block */}
+        <div className="overview-card-container">
+          <h2 className="overview-section-title" style={{ marginBottom: 16 }}>Popular products</h2>
+          <div className="popular-products-list">
+            {popularProducts.map((prod) => (
+              <div className="popular-product-row" key={prod.id}>
+                <div className="prod-img-wrap">
+                  <img src={prod.imageUrl} alt={prod.title} />
+                </div>
+                <div className="prod-info-wrap">
+                  <span className="prod-title">{prod.title}</span>
+                  <span className="prod-sub">{prod.subtitle}</span>
+                </div>
+                <div className="prod-meta-wrap">
+                  <span className="prod-price">{prod.price}</span>
+                  <span className={`prod-badge ${prod.status === "Active" ? "active" : "offline"}`}>
+                    {prod.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button 
+            type="button" 
+            className="db-btn-all-products" 
+            onClick={() => onNavigate("products")}
+          >
+            All products
+          </button>
+        </div>
+
+        {/* Comments block */}
+        <div className="overview-card-container" style={{ marginTop: 24 }}>
+          <h2 className="overview-section-title" style={{ marginBottom: 16 }}>Comments</h2>
+          <div className="comments-list">
+            {activityLogs.map((comment) => (
+              <div className="comment-row" key={comment.id}>
+                <div className="comment-avatar-wrap">
+                  <img src={comment.avatarUrl} alt={comment.name} />
+                </div>
+                <div className="comment-body-wrap">
+                  <div className="comment-header">
+                    <span className="comment-author">{comment.name}</span>
+                    <span className="comment-target">on {comment.target}</span>
+                  </div>
+                  <span className="comment-time">{comment.time}</span>
+                  <p className="comment-text">{comment.text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   PRODUCTS TAB PANEL
+   ============================================================ */
+function ProductsPanel({
+  links,
+  searchQuery,
+  history,
+  latest,
+  removeLink,
+  checking,
+  checkAllLinks,
+  activeJob,
+  message
+}: {
+  links: SavedLink[];
+  searchQuery: string;
+  history: DarazCheckResult[];
+  latest: DarazCheckResult | undefined;
+  removeLink: (id: string) => Promise<void>;
+  checking: boolean;
+  checkAllLinks: () => Promise<void>;
+  activeJob: PriceCheckJob | undefined;
+  message: string;
+}) {
+  const filteredLinks = useMemo(() => {
+    if (!searchQuery.trim()) return links;
+    return links.filter(l => l.title.toLowerCase().includes(searchQuery.toLowerCase()) || l.url.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [links, searchQuery]);
+
+  const productPageTotal = useMemo(() => filteredLinks.reduce((total, link) => {
+    const observed = parseObservedPrice(link)?.minorUnits ?? 0;
+    return total + observed;
+  }, 0), [filteredLinks]);
+
+  return (
+    <div className="products-panel">
+      <div className="panel-header-actions">
+        <h2 className="overview-section-title">Saved Products ({filteredLinks.length})</h2>
+        <button 
+          type="button" 
+          className="db-btn-primary" 
+          disabled={checking || links.length === 0}
+          onClick={() => void checkAllLinks()}
+        >
+          {checking ? "⟳ Running check..." : "▶ Run Price Verification"}
+        </button>
+      </div>
+
+      {message && <div className="info-message-banner">{message}</div>}
+      {activeJob && (
+        <div className="active-job-banner">
+          <span>{priceCheckJobLabel(activeJob)}</span>
+        </div>
+      )}
+
+      <div className="products-grid-layout">
+        {/* Left side: List of links */}
+        <div className="overview-card-container">
+          <h3 className="card-subtitle" style={{ marginBottom: 12 }}>Monitored Links</h3>
+          {filteredLinks.length === 0 ? (
+            <div className="db-empty-state">
+              <p>{searchQuery ? "No products match your search query." : "No saved links yet. Click 'Create' in the top header to add a product URL."}</p>
+            </div>
+          ) : (
+            <div className="db-links-list">
+              {filteredLinks.map((link) => (
+                <div className="db-link-row" key={link.id}>
+                  {link.imageUrl && (
+                    <div className="db-link-thumbnail">
+                      <img src={link.imageUrl} alt={link.title} />
+                    </div>
+                  )}
+                  <div className="db-link-info">
+                    <p className="db-link-title">{link.title}</p>
+                    <a href={link.url} target="_blank" rel="noreferrer" className="db-link-url">View on Daraz ↗</a>
+                  </div>
+                  <div className="db-link-meta">
+                    <span className="db-link-price">{formatMoney(parseObservedPrice(link))}</span>
+                    <button type="button" className="text-button remove-btn" onClick={() => void removeLink(link.id)}>Remove</button>
+                  </div>
+                </div>
+              ))}
+              <div className="db-links-total">
+                <span>Product-page total</span>
+                <strong>{formatLkr(productPageTotal)}</strong>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right side: Latest Verification Results */}
+        <div className="overview-card-container">
+          <h3 className="card-subtitle" style={{ marginBottom: 12 }}>Latest Checkout Results</h3>
+          {latest ? (
+            <div className="price-results-section">
+              <div className="results-summary-row" style={{ marginBottom: 12 }}>
+                <span>Latest Verified Checkout Total:</span>
+                <strong className="checkout-total-val">{formatMoney(latest.checkoutTotal)}</strong>
+              </div>
+              <PriceTable result={latest} />
+            </div>
+          ) : (
+            <div className="db-empty-state">
+              <p>No verified checks completed yet. Trigger a price verification run to see final checkout totals, service fees, and taxes.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   SESSION PANEL
+   ============================================================ */
+function SessionPanel({
+  darazSession,
+  credentials,
+  captureId,
+  browserUrl,
+  startDarazLogin,
+  saveDarazLogin,
+  resetDarazLogin,
+  stopDarazBrowser,
+  checking,
+  checkAllLinks,
+  activeJob,
+  message
+}: {
+  darazSession: DarazSession;
+  credentials: DarazCredentialStatus;
+  captureId: string;
+  browserUrl: string;
+  startDarazLogin: () => Promise<void>;
+  saveDarazLogin: () => Promise<void>;
+  resetDarazLogin: () => Promise<void>;
+  stopDarazBrowser: () => Promise<void>;
+  checking: boolean;
+  checkAllLinks: () => Promise<void>;
+  activeJob: PriceCheckJob | undefined;
+  message: string;
+}) {
+  return (
+    <div className="session-panel">
+      <h2 className="overview-section-title" style={{ marginBottom: 16 }}>Daraz Browser Session</h2>
+
+      {message && <div className="info-message-banner">{message}</div>}
+      
+      <div className="session-grid">
+        <div className="overview-card-container">
+          <div className="session-status-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <h3>Connection Status</h3>
+            <span className={`status-pill ${sessionClassName(darazSession.status)}`}>
+              {sessionLabel(darazSession.status)}
+            </span>
+          </div>
+
+          <p className="session-desc" style={{ color: "#64748b", fontSize: 14, lineHeight: 1.5, marginBottom: 20 }}>
+            {sessionHelpText(darazSession, credentials)}
+          </p>
+
+          <div className="session-controls" style={{ display: "flex", gap: 12 }}>
+            {captureId && browserUrl ? (
+              <a className="db-btn-primary remote-browser-btn" href={browserUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                Open Remote Browser Window ↗
+              </a>
+            ) : (
+              <button 
+                type="button" 
+                className="db-btn-primary" 
+                disabled={Boolean(captureId)} 
+                onClick={() => void startDarazLogin()}
+                style={{ flex: 1 }}
+              >
+                {captureId ? "Browser Active" : "Start Login Session"}
+              </button>
+            )}
+            
+            <button 
+              type="button" 
+              className="db-btn-secondary" 
+              disabled={!captureId} 
+              onClick={() => void saveDarazLogin()}
+              style={{ flex: 1 }}
+            >
+              Save Login Session
+            </button>
+          </div>
+
+          <div className="session-controls" style={{ display: "flex", gap: 12, marginTop: 12 }}>
+            <button 
+              type="button" 
+              className="db-btn-light" 
+              style={{ flex: 1 }} 
+              disabled={!captureId && darazSession.status === "missing"} 
+              onClick={() => void resetDarazLogin()}
+            >
+              Reset Session
+            </button>
+            <button 
+              type="button" 
+              className="db-btn-light" 
+              style={{ flex: 1 }} 
+              disabled={!captureId} 
+              onClick={() => void stopDarazBrowser()}
+            >
+              Stop Browser Process
+            </button>
+          </div>
+        </div>
+
+        <div className="overview-card-container">
+          <h3 style={{ marginBottom: 12 }}>Session Verification Instructions</h3>
+          <ul className="verification-steps-list" style={{ paddingLeft: 20, margin: 0, color: "#475569", fontSize: 14, lineHeight: 1.6 }}>
+            <li style={{ marginBottom: 8 }}>
+              <strong>1. Start the Session:</strong> Click "Start Login Session". This spins up an automated remote browser instance on the CartTruth server.
+            </li>
+            <li style={{ marginBottom: 8 }}>
+              <strong>2. Log In:</strong> Click "Open Remote Browser Window". This opens a secure VNC interface displaying the remote browser. Navigate to Daraz, enter your credentials, and complete any required captchas or OTP challenges.
+            </li>
+            <li style={{ marginBottom: 8 }}>
+              <strong>3. Save Cookies:</strong> Return to this page and click "Save Login Session". CartTruth will secure the browser cookies for subsequent automated checks.
+            </li>
+            <li>
+              <strong>4. Test Run:</strong> Add a product link and click "Run Price Verification" to test.
+            </li>
+          </ul>
         </div>
       </div>
     </div>
@@ -1700,371 +2534,7 @@ function MessagesPanel() {
   );
 }
 
-function UserPanel() {
-  const [productUrl, setProductUrl] = useState("");
-  const [links, setLinks] = useState<SavedLink[]>([]);
-  const [darazSession, setDarazSession] = useState<DarazSession>({ status: "missing" });
-  const [captureId, setCaptureId] = useState("");
-  const [browserUrl, setBrowserUrl] = useState("");
-  const [checking, setChecking] = useState(false);
-  const [history, setHistory] = useState<DarazCheckResult[]>([]);
-  const [latest, setLatest] = useState<DarazCheckResult | undefined>();
-  const [credentials, setCredentials] = useState<DarazCredentialStatus>({ saved: false });
-  const [addingLink, setAddingLink] = useState(false);
-  const [activeJob, setActiveJob] = useState<PriceCheckJob | undefined>();
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  const productPageTotal = useMemo(() => links.reduce((total, link) => {
-    const observed = parseObservedPrice(link)?.minorUnits ?? 0;
-    return total + observed;
-  }, 0), [links]);
-  const hasSavedCredentialsForExpiredSession = credentials.saved && darazSession.status !== "saved";
-
-  async function refresh() {
-    const [session, saved, runs, credentialStatus] = await Promise.all([
-      fetchJson<DarazSession>("/api/daraz/session/status"),
-      fetchJson<{ links: SavedLink[] }>("/api/links"),
-      fetchJson<DarazCheckResult[]>("/api/daraz/runs"),
-      fetchJson<DarazCredentialStatus>("/api/daraz/credentials")
-    ]);
-    setDarazSession(session);
-    setCaptureId(session.captureId ?? "");
-    setBrowserUrl(session.browserUrl ?? (session.live ? browserUrl : ""));
-    setLinks(saved.links);
-    setHistory(runs);
-    setCredentials(credentialStatus);
-    if (!latest && runs[0]) {
-      setLatest(runs[0]);
-    }
-  }
-
-  async function addLink(event: React.FormEvent) {
-    event.preventDefault();
-    setAddingLink(true);
-    setMessage("Reading product page price...");
-    try {
-      const response = await postJson<{ link: SavedLink; checkJob: PriceCheckJob; message?: string }>("/api/links", { url: productUrl.trim() });
-      if (response.link) {
-        setLinks((items) => [response.link!, ...items.filter((item) => item.id !== response.link!.id)]);
-      }
-      setProductUrl("");
-      setMessage("Final checkout price check queued.");
-      await trackPriceCheckJob(response.checkJob.id);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setAddingLink(false);
-    }
-  }
-
-  async function removeLink(linkId: string) {
-    await fetchJson(`/api/links/${linkId}`, { method: "DELETE" });
-    await refresh();
-  }
-
-  async function startDarazLogin() {
-    setMessage("Opening your Daraz browser session...");
-    try {
-      const response = await postJson<{ captureId: string; browserUrl?: string }>("/api/daraz/session/start", {});
-      setCaptureId(response.captureId);
-      setBrowserUrl(response.browserUrl ?? "");
-      setMessage("Daraz browser opened on the server. Complete login or verification there, then save.");
-      await refresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function saveDarazLogin() {
-    if (!captureId) return;
-    try {
-      const response = await postJson<{ session?: DarazSession }>("/api/daraz/session/save", { captureId });
-      setDarazSession(response.session ?? { status: "saved" });
-      setMessage("Your Daraz session was saved.");
-    } catch (error) {
-      await refresh().catch(() => undefined);
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function resetDarazLogin() {
-    const session = await postJson<DarazSession>("/api/daraz/session/reset", {});
-    setDarazSession(session);
-    setCaptureId("");
-    setBrowserUrl("");
-    setMessage("Daraz session reset.");
-  }
-
-  async function stopDarazBrowser() {
-    const session = await postJson<DarazSession>("/api/daraz/session/stop", {});
-    setDarazSession(session);
-    setCaptureId("");
-    setBrowserUrl("");
-    setMessage("Remote Daraz browser closed.");
-  }
-
-  async function checkAllLinks() {
-    if (links.length === 0) {
-      setMessage("Save at least one Daraz link first.");
-      return;
-    }
-    setChecking(true);
-    setMessage(hasSavedCredentialsForExpiredSession ? "Reconnecting to Daraz..." : "Queueing saved-link check...");
-    try {
-      const response = await postJson<{ job: PriceCheckJob }>("/api/links/check-jobs", {});
-      await trackPriceCheckJob(response.job.id);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setChecking(false);
-    }
-  }
-
-  async function handleDarazSessionAction(response: DarazSessionActionResponse) {
-    setBrowserUrl(response.browserUrl ?? response.session?.browserUrl ?? "");
-    setCaptureId(response.session?.captureId ?? "");
-    setDarazSession(response.session ?? darazSession);
-    setMessage(response.message ?? "Daraz needs verification. Open the remote browser, finish it, then save session.");
-  }
-
-  async function trackPriceCheckJob(jobId: string) {
-    let current: PriceCheckJob | undefined;
-    for (let attempt = 0; attempt < 120; attempt += 1) {
-      const response = await fetchJson<{ job: PriceCheckJob }>(`/api/price-check-jobs/${jobId}`);
-      current = response.job;
-      setActiveJob(current);
-      if (current.status === "queued") {
-        setMessage("Final checkout price check queued.");
-      } else if (current.status === "running") {
-        setMessage(hasSavedCredentialsForExpiredSession ? "Reconnecting to Daraz..." : "Checking final checkout price...");
-      } else {
-        break;
-      }
-      await delay(1000);
-    }
-
-    if (!current) {
-      return;
-    }
-    if (current.status === "needs_user_action") {
-      await handleDarazSessionAction({
-        status: "needs_user_action",
-        message: current.message,
-        session: current.session,
-        browserUrl: current.session?.browserUrl
-      });
-      await refresh().catch(() => undefined);
-      return;
-    }
-    if (current.status === "completed" && current.runId) {
-      const result = await fetchJson<DarazCheckResult>(`/api/daraz/runs/${current.runId}`);
-      setLatest(result);
-      setMessage(current.message ?? "Product page price and final checkout price updated.");
-      await refresh();
-      return;
-    }
-    setMessage(current.message ?? plainStatus(current.status));
-    await refresh().catch(() => undefined);
-  }
-
-  // Derive price history for chart (checkout totals from runs)
-  const priceHistory = history.slice(0, 7).map(r => r.checkoutTotal?.minorUnits ?? 0).reverse();
-  const priceLabels = history.slice(0, 7).map((_, i) => `R${history.length - i}`).reverse();
-
-  return (
-    <>
-      {/* STAT CARDS */}
-      <div className="db-stat-cards">
-        <StatCard
-          label="Saved Links"
-          value={String(links.length)}
-          delta={links.length > 0 ? 8 : undefined}
-          deltaLabel="than last week"
-          icon={<svg viewBox="0 0 20 20" fill="white" width="18" height="18"><path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" /></svg>}
-          iconBg="#3b82f6"
-        />
-        <StatCard
-          label="Price Checks Run"
-          value={String(history.length)}
-          delta={history.length > 0 ? 15 : undefined}
-          deltaLabel="than last month"
-          icon={<svg viewBox="0 0 20 20" fill="white" width="18" height="18"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>}
-          iconBg="#10b981"
-        />
-        <StatCard
-          label="Latest Checkout"
-          value={latest?.checkoutTotal ? formatMoney(latest.checkoutTotal) : "—"}
-          icon={<svg viewBox="0 0 20 20" fill="white" width="18" height="18"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H6.28l-.31-1.243A1 1 0 005 1H3z" /><path d="M16 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM6.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" /></svg>}
-          iconBg="#f59e0b"
-        />
-        <StatCard
-          label="Session"
-          value={sessionLabel(darazSession.status)}
-          icon={<svg viewBox="0 0 20 20" fill="white" width="18" height="18"><path fillRule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clipRule="evenodd" /></svg>}
-          iconBg={darazSession.status === "saved" ? "#10b981" : "#ef4444"}
-        />
-      </div>
-
-      {/* CHARTS ROW */}
-      <div className="db-charts-row">
-        <MiniLineChart
-          data={priceHistory.length > 1 ? priceHistory.map(v => v / 100) : [12500, 13200, 12800, 14100, 13500, 12900, 14300]}
-          color="#10b981"
-          label="Checkout Price History"
-          sublabel="Last 7 verified runs"
-        />
-        <MiniBarChart
-          data={[links.length, history.filter(r => r.status === "checked").length, history.filter(r => r.status !== "checked").length]}
-          labels={["Links", "OK", "Issues"]}
-          color="#3b82f6"
-          label="Check Overview"
-          sublabel="Links vs results"
-        />
-        <DonutChart
-          segments={[
-            { value: history.filter(r => r.status === "checked").length, color: "#10b981", name: "Checked" },
-            { value: history.filter(r => r.status === "blocked").length, color: "#ef4444", name: "Blocked" },
-            { value: history.filter(r => r.status === "needs_attention").length, color: "#f59e0b", name: "Attention" }
-          ]}
-          label="Run Status"
-          sublabel="All time breakdown"
-        />
-      </div>
-
-      {/* MAIN WORK AREA */}
-      <div className="db-two-col" style={{ marginTop: 24 }}>
-        {/* Links panel */}
-        <div className="db-card">
-          <div className="db-card-header">
-            <h2 className="db-card-title">Saved Daraz Links</h2>
-            <span className="db-badge db-badge--blue">{links.length} saved</span>
-          </div>
-          <form className="db-url-form" onSubmit={(event) => void addLink(event)}>
-            <input
-              value={productUrl}
-              onChange={(event) => setProductUrl(event.target.value)}
-              placeholder="Paste Daraz product URL..."
-              className="db-url-input"
-            />
-            <button type="submit" className="db-url-btn" disabled={addingLink}>
-              {addingLink ? "Checking..." : "Save & Check"}
-            </button>
-          </form>
-
-          {links.length === 0 ? (
-            <div className="db-empty-state">
-              <p>No saved links yet. Paste a Daraz product URL above to get started.</p>
-            </div>
-          ) : (
-            <div className="db-links-list">
-              {links.map((link) => (
-                <div className="db-link-row" key={link.id}>
-                  <div className="db-link-info">
-                    <p className="db-link-title">{link.title}</p>
-                    <a href={link.url} target="_blank" rel="noreferrer" className="db-link-url">View product ↗</a>
-                  </div>
-                  <div className="db-link-meta">
-                    <span className="db-link-price">{formatMoney(parseObservedPrice(link))}</span>
-                    <button type="button" className="text-button" onClick={() => void removeLink(link.id)}>Remove</button>
-                  </div>
-                </div>
-              ))}
-              <div className="db-links-total">
-                <span>Product-page total</span>
-                <strong>{formatLkr(productPageTotal)}</strong>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Session panel */}
-        <div className="db-card">
-          <div className="db-card-header">
-            <h2 className="db-card-title">Daraz Session</h2>
-            <span className={`status ${sessionClassName(darazSession.status)}`}>{sessionLabel(darazSession.status)}</span>
-          </div>
-          <p className="db-session-help">{sessionHelpText(darazSession, credentials)}</p>
-
-          <div className="db-session-buttons">
-            {captureId && browserUrl ? (
-              <a className="db-btn-primary" href={browserUrl} target="_blank" rel="noreferrer">Open Remote Browser ↗</a>
-            ) : (
-              <button type="button" className="db-btn-primary" disabled={Boolean(captureId)} onClick={() => void startDarazLogin()}>
-                {captureId ? "Browser Active" : "Open Daraz Browser"}
-              </button>
-            )}
-            <button type="button" className="db-btn-secondary" disabled={!captureId} onClick={() => void saveDarazLogin()}>Save Session</button>
-          </div>
-          <div className="db-session-buttons" style={{ marginTop: 8 }}>
-            <button type="button" className="light-button" style={{ flex: 1 }} disabled={!captureId && darazSession.status === "missing"} onClick={() => void resetDarazLogin()}>Reset</button>
-            <button type="button" className="light-button" style={{ flex: 1 }} disabled={!captureId} onClick={() => void stopDarazBrowser()}>Stop Browser</button>
-          </div>
-
-          {browserUrl && !captureId && (
-            <a className="browser-link" href={browserUrl} target="_blank" rel="noreferrer">Open remote browser</a>
-          )}
-
-          <button
-            type="button"
-            className="db-btn-check"
-            disabled={checking || links.length === 0}
-            onClick={() => void checkAllLinks()}
-          >
-            {checking ? "⟳ Running check..." : "▶ Check All Saved Links"}
-          </button>
-
-          {activeJob && (
-            <div className="job-state">
-              {priceCheckJobLabel(activeJob)}
-              {activeJob.status === "needs_user_action" && activeJob.session?.browserUrl && (
-                <a className="browser-link" href={activeJob.session.browserUrl} target="_blank" rel="noreferrer">Open remote browser</a>
-              )}
-            </div>
-          )}
-          {darazSession.message && <p className="attention-message">{darazSession.message}</p>}
-          {message && <p className="message">{message}</p>}
-        </div>
-      </div>
-
-      {/* PRICE RESULTS */}
-      <div className="db-card" style={{ marginTop: 20 }}>
-        <div className="db-card-header">
-          <h2 className="db-card-title">Latest Checkout Prices</h2>
-          {latest?.checkoutTotal && (
-            <span className="db-stat-value" style={{ fontSize: 18, color: "#10b981" }}>{formatMoney(latest.checkoutTotal)}</span>
-          )}
-        </div>
-        {latest ? <PriceTable result={latest} /> : (
-          <div className="db-empty-state">
-            <p>No price check yet. Save a link and run a check to see results.</p>
-          </div>
-        )}
-      </div>
-
-      {/* HISTORY */}
-      {history.length > 0 && (
-        <div className="db-card" style={{ marginTop: 20 }}>
-          <div className="db-card-header">
-            <h2 className="db-card-title">Previous Checks</h2>
-            <span className="db-badge db-badge--grey">{history.length} total</span>
-          </div>
-          <div className="history-list">
-            {history.slice(0, 8).map((item) => (
-              <button type="button" key={item.runId} onClick={() => setLatest(item)}>
-                <span>{new Date(item.startedAt).toLocaleString()}</span>
-                <strong>{plainStatus(item.status)}</strong>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
+/* Old UserPanel component deleted — states and views migrated to Dashboard shell & subpanels */
 
 function SettingsPanel() {
   const [settings, setSettings] = useState<UserSettings | undefined>();
