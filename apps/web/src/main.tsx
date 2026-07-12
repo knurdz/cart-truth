@@ -1493,7 +1493,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
                 <rect x="14" y="14" width="7" height="7" rx="1"/>
               </svg>
             }
-            label="Projects"
+            label="Products"
             active={tab === "products"}
             onClick={() => setTab("products")}
             showPlus
@@ -1507,24 +1507,40 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
                 <line x1="16" y1="3" x2="16" y2="7"/>
               </svg>
             }
-            label="Tasks"
+            label="Daraz Session"
             active={tab === "session"}
             onClick={() => setTab("session")}
             showPlus
           />
-          <SidebarNavItem
-            icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                <circle cx="9" cy="7" r="4"/>
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-              </svg>
-            }
-            label="Team"
-            active={tab === "messages"}
-            onClick={() => { if (user.role === "admin") setTab("messages"); }}
-          />
+          {user.role === "admin" && (
+            <SidebarNavItem
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                  <circle cx="9" cy="7" r="4"/>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+              }
+              label="Messages"
+              active={tab === "messages"}
+              onClick={() => setTab("messages")}
+            />
+          )}
+          {user.role === "admin" && (
+            <SidebarNavItem
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <line x1="9" y1="9" x2="15" y2="15"/>
+                  <line x1="15" y1="9" x2="9" y2="15"/>
+                </svg>
+              }
+              label="Admin Panel"
+              active={tab === "admin"}
+              onClick={() => setTab("admin")}
+            />
+          )}
           <SidebarNavItem
             icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
@@ -1687,42 +1703,40 @@ function DashboardOverview({
 }) {
   const firstName = (displayUser(user).split(" ")[0]) || "there";
   const today = new Date().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
-  const finishedCount = history.filter(r => r.status === "checked").length;
-  const trackedHours = Math.max(history.length * 2, 8);
-  const efficiencyPct = history.length > 0 ? Math.min(99, Math.round(70 + (finishedCount / Math.max(history.length, 1)) * 29)) : 93;
 
-  // SVG line chart — two area curves
-  const [hoveredChartPt, setHoveredChartPt] = useState<number | null>(3);
+  // Real metrics
+  const checkedCount = history.filter(r => r.status === "checked").length;
+  const totalRuns = history.length;
+  const latestCheckout = latest?.checkoutTotal;
+  const sessionActive = darazSession.status === "saved";
+
+  // Build checkout price history from real runs (last 7, most-recent-first → reverse for chart)
+  const priceRuns = history.slice(0, 7).reverse();
+  const chartPrices = priceRuns.map(r => (r.checkoutTotal?.minorUnits ?? 0) / 100);
+  // Fallback demo data if no runs yet
+  const chartData = chartPrices.length >= 2 ? chartPrices : [1250, 1320, 1195, 1410, 1380, 1290, 1430];
+  const chartLabels = priceRuns.length >= 2
+    ? priceRuns.map(r => new Date(r.startedAt).toLocaleDateString("en-US", { day: "2-digit" }))
+    : ["01","02","03","04","05","06","07"];
+
+  // SVG chart dimensions
+  const [hoveredChartPt, setHoveredChartPt] = useState<number | null>(null);
   const chartW = 540;
   const chartH = 160;
-  const chartPad = { top: 16, right: 8, bottom: 28, left: 28 };
+  const chartPad = { top: 16, right: 8, bottom: 28, left: 40 };
   const innerW = chartW - chartPad.left - chartPad.right;
   const innerH = chartH - chartPad.top - chartPad.bottom;
-  const xLabels = ["01","02","03","04","05","06","07"];
-  const thisMonthData = [7, 6.5, 7, 9.5, 10.2, 8, 9];
-  const lastMonthData = [7.5, 7, 6, 7, 8, 7.2, 7.8];
-  const maxVal = 12;
-  const toX = (i: number) => chartPad.left + (i / (xLabels.length - 1)) * innerW;
+  const maxVal = Math.max(...chartData) * 1.2 || 1500;
+  const toX = (i: number) => chartPad.left + (i / Math.max(chartData.length - 1, 1)) * innerW;
   const toY = (v: number) => chartPad.top + innerH - (v / maxVal) * innerH;
   const makePath = (data: number[]) =>
     data.map((v, i) => `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
   const makeArea = (data: number[]) =>
     `${makePath(data)} L${toX(data.length - 1).toFixed(1)},${(chartPad.top + innerH).toFixed(1)} L${chartPad.left.toFixed(1)},${(chartPad.top + innerH).toFixed(1)} Z`;
 
-  // Tasks list
-  const tasks = useMemo(() => {
-    const mockTasks = [
-      { id: "t1", icon: "🔍", iconBg: "#e8eaf6", title: "Product Review for UI8 Market", status: "In progress" as const, statusColor: "#f97316", hours: `${links.length > 0 ? links.length * 2 : 4}h` },
-      { id: "t2", icon: "🔎", iconBg: "#fff3e0", title: "UX Research for Product", status: "On hold" as const, statusColor: "#3b82f6", hours: `${Math.max(history.length * 2, 8)}h` },
-      { id: "t3", icon: "💻", iconBg: "#e8f5e9", title: "App design and development", status: "Done" as const, statusColor: "#22c55e", hours: `${finishedCount > 0 ? finishedCount * 8 : 32}h` },
-    ];
-    if (links.length > 0) {
-      mockTasks[0].title = links[0].title.substring(0, 34) + (links[0].title.length > 34 ? "..." : "");
-    }
-    return mockTasks;
-  }, [links, history, finishedCount]);
-
-  const tasksDonePct = Math.round((tasks.filter(t => t.status === "Done").length / tasks.length) * 100);
+  // Y-axis gridlines: 5 evenly spaced
+  const yTicks = Array.from({ length: 5 }, (_, i) => Math.round((maxVal / 4) * i));
+  const formatChartY = (v: number) => v >= 1000 ? `${(v/1000).toFixed(1)}k` : String(v);
 
   return (
     <div className="ov2-layout">
@@ -1730,35 +1744,33 @@ function DashboardOverview({
       <div className="ov2-greeting-row">
         <div>
           <h1 className="ov2-greeting">Hello, {firstName}</h1>
-          <p className="ov2-greeting-sub">Track your Daraz price checks here. You almost reached a goal!</p>
+          <p className="ov2-greeting-sub">Here's your Daraz price monitoring overview.</p>
         </div>
         <div className="ov2-date-pill">
           <span className="ov2-date-text">{today}</span>
-          <button type="button" className="ov2-date-icon-btn" onClick={onCreateClick} title="Add product">
+          <button type="button" className="ov2-date-icon-btn" onClick={onCreateClick} title="Monitor a new product">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-              <line x1="16" y1="2" x2="16" y2="6"/>
-              <line x1="8" y1="2" x2="8" y2="6"/>
-              <line x1="3" y1="10" x2="21" y2="10"/>
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
           </button>
         </div>
       </div>
 
-      {/* ── STAT BOXES ── */}
+      {/* ── REAL STAT BOXES ── */}
       <div className="ov2-stats-row">
         <div className="ov2-stat-item">
           <div className="ov2-stat-icon" style={{ background: "#f0f4ff" }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
-              <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/>
-              <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
             </svg>
           </div>
           <div className="ov2-stat-content">
-            <span className="ov2-stat-label">Finished</span>
+            <span className="ov2-stat-label">Monitored Links</span>
             <div className="ov2-stat-val-row">
-              <span className="ov2-stat-val">{finishedCount > 0 ? finishedCount : 18}</span>
-              <span className="ov2-stat-trend ov2-trend-down">▼ +{finishedCount > 0 ? Math.max(1, finishedCount - 3) : 8} tasks</span>
+              <span className="ov2-stat-val">{links.length}</span>
+              {links.length > 0 && <span className="ov2-stat-trend ov2-trend-down">▼ active</span>}
             </div>
           </div>
         </div>
@@ -1766,15 +1778,14 @@ function DashboardOverview({
         <div className="ov2-stat-item">
           <div className="ov2-stat-icon" style={{ background: "#fff8f0" }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="12 6 12 12 16 14"/>
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
             </svg>
           </div>
           <div className="ov2-stat-content">
-            <span className="ov2-stat-label">Tracked</span>
+            <span className="ov2-stat-label">Price Checks</span>
             <div className="ov2-stat-val-row">
-              <span className="ov2-stat-val">{trackedHours}h</span>
-              <span className="ov2-stat-trend ov2-trend-up">▲ -{Math.max(1, Math.round(trackedHours * 0.19))} hours</span>
+              <span className="ov2-stat-val">{totalRuns}</span>
+              {checkedCount > 0 && <span className="ov2-stat-trend ov2-trend-down">▼ {checkedCount} verified</span>}
             </div>
           </div>
         </div>
@@ -1782,160 +1793,244 @@ function DashboardOverview({
         <div className="ov2-stat-item">
           <div className="ov2-stat-icon" style={{ background: "#f0fff8" }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
-              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
-              <polyline points="16 7 22 7 22 13"/>
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+              <line x1="9" y1="9" x2="9.01" y2="9"/>
+              <line x1="15" y1="9" x2="15.01" y2="9"/>
             </svg>
           </div>
           <div className="ov2-stat-content">
-            <span className="ov2-stat-label">Efficiency</span>
+            <span className="ov2-stat-label">Daraz Session</span>
             <div className="ov2-stat-val-row">
-              <span className="ov2-stat-val">{efficiencyPct}%</span>
-              <span className="ov2-stat-trend ov2-trend-down">▼ +{Math.round(efficiencyPct * 0.13)}%</span>
+              <span className="ov2-stat-val" style={{ fontSize: 18, paddingTop: 4 }}>{sessionActive ? "Active" : "Offline"}</span>
+              <span className={`ov2-stat-trend ${sessionActive ? "ov2-trend-down" : "ov2-trend-up"}`}>{sessionActive ? "▼ connected" : "▲ login needed"}</span>
             </div>
           </div>
         </div>
-      </div>
-
-      {/* ── PERFORMANCE CHART ── */}
-      <div className="ov2-section">
-        <div className="ov2-section-header">
-          <h2 className="ov2-section-title">Performance</h2>
-          <select className="ov2-period-select">  
-            <option>01-07 May</option>
-            <option>08-14 May</option>
-          </select>
-        </div>
-
-        <div className="ov2-chart-wrap">
-          <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="xMidYMid meet" style={{ overflow: "visible" }}>
-            <defs>
-              <linearGradient id="grad-blue" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#bfdbfe" stopOpacity="0.7"/>
-                <stop offset="100%" stopColor="#bfdbfe" stopOpacity="0"/>
-              </linearGradient>
-              <linearGradient id="grad-orange" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fed7aa" stopOpacity="0.5"/>
-                <stop offset="100%" stopColor="#fed7aa" stopOpacity="0"/>
-              </linearGradient>
-            </defs>
-            {/* Y-axis labels */}
-            {["12h","8h","6h","2h","0h"].map((lbl, i) => {
-              const vals: Record<string, number> = {"12h": 12, "8h": 8, "6h": 6, "2h": 2, "0h": 0};
-              const y = toY(vals[lbl] ?? 0);
-              return (
-                <text key={lbl} x={chartPad.left - 6} y={y + 4} textAnchor="end" fontSize="10" fill="#9ca3af">{lbl}</text>
-              );
-            })}
-            {/* Grid lines */}
-            {[12, 8, 6, 2, 0].map(v => (
-              <line key={v} x1={chartPad.left} y1={toY(v)} x2={chartPad.left + innerW} y2={toY(v)} stroke="#f1f5f9" strokeWidth="1"/>
-            ))}
-            {/* Area fills */}
-            <path d={makeArea(thisMonthData)} fill="url(#grad-blue)" />
-            <path d={makeArea(lastMonthData)} fill="url(#grad-orange)" />
-            {/* Lines */}
-            <path d={makePath(thisMonthData)} fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
-            <path d={makePath(lastMonthData)} fill="none" stroke="#f97316" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray="0"/>
-            {/* X-axis labels */}
-            {xLabels.map((lbl, i) => (
-              <text key={lbl} x={toX(i)} y={chartPad.top + innerH + 18} textAnchor="middle" fontSize="10" fill="#9ca3af">{lbl}</text>
-            ))}
-            {/* Interactive hover areas + dots */}
-            {xLabels.map((_, i) => (
-              <rect
-                key={i}
-                x={toX(i) - 20}
-                y={chartPad.top}
-                width="40"
-                height={innerH}
-                fill="transparent"
-                style={{ cursor: "pointer" }}
-                onMouseEnter={() => setHoveredChartPt(i)}
-                onMouseLeave={() => setHoveredChartPt(null)}
-              />
-            ))}
-            {hoveredChartPt !== null && (
-              <>
-                {/* Vertical dashed line */}
-                <line
-                  x1={toX(hoveredChartPt)} y1={chartPad.top}
-                  x2={toX(hoveredChartPt)} y2={chartPad.top + innerH}
-                  stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4,3"
-                />
-                {/* Dots */}
-                <circle cx={toX(hoveredChartPt)} cy={toY(thisMonthData[hoveredChartPt])} r="5" fill="#3b82f6" stroke="white" strokeWidth="2"/>
-                <circle cx={toX(hoveredChartPt)} cy={toY(lastMonthData[hoveredChartPt])} r="5" fill="#f97316" stroke="white" strokeWidth="2"/>
-                {/* Tooltip box */}
-                <foreignObject
-                  x={Math.min(toX(hoveredChartPt) - 60, chartW - 145)}
-                  y={toY(thisMonthData[hoveredChartPt]) - 100}
-                  width="130" height="90"
-                >
-                  <div className="chart-tooltip-box">
-                    <span className="chart-tooltip-date">{xLabels[hoveredChartPt]} May 2024</span>
-                    <div className="chart-tooltip-row">
-                      <span className="chart-tooltip-dot" style={{ background: "#3b82f6" }}/>
-                      <span className="chart-tooltip-key">This month</span>
-                      <span className="chart-tooltip-val">{thisMonthData[hoveredChartPt]}h</span>
-                    </div>
-                    <div className="chart-tooltip-row">
-                      <span className="chart-tooltip-dot" style={{ background: "#f97316" }}/>
-                      <span className="chart-tooltip-key">Last month</span>
-                      <span className="chart-tooltip-val">{lastMonthData[hoveredChartPt]}h</span>
-                    </div>
-                  </div>
-                </foreignObject>
-              </>
-            )}
-          </svg>
-        </div>
-      </div>
-
-      {/* ── CURRENT TASKS ── */}
-      <div className="ov2-section">
-        <div className="ov2-section-header">
-          <div className="ov2-tasks-title-row">
-            <h2 className="ov2-section-title">Current Tasks</h2>
-            <span className="ov2-tasks-done-pill">Done {tasksDonePct}%</span>
-          </div>
-          <select className="ov2-period-select">
-            <option>Week</option>
-            <option>Month</option>
-          </select>
-        </div>
-
-        <div className="ov2-tasks-list">
-          {tasks.map(task => (
-            <div className="ov2-task-row" key={task.id}>
-              <div className="ov2-task-icon" style={{ background: task.iconBg }}>
-                <span style={{ fontSize: 18 }}>{task.icon}</span>
-              </div>
-              <span className="ov2-task-title">{task.title}</span>
-              <div className="ov2-task-status">
-                <span className="ov2-task-status-dot" style={{ background: task.statusColor }}/>
-                <span className="ov2-task-status-text" style={{ color: task.statusColor }}>{task.status}</span>
-              </div>
-              <div className="ov2-task-hours">
-                <svg viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13">
-                  <circle cx="12" cy="12" r="10"/>
-                  <polyline points="12 6 12 12 16 14"/>
+        {latestCheckout && (
+          <>
+            <div className="ov2-stat-divider" />
+            <div className="ov2-stat-item">
+              <div className="ov2-stat-icon" style={{ background: "#fef9ee" }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
+                  <line x1="12" y1="1" x2="12" y2="23"/>
+                  <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
                 </svg>
-                <span>{task.hours}</span>
               </div>
-              <button type="button" className="ov2-task-more">
-                <span>•••</span>
+              <div className="ov2-stat-content">
+                <span className="ov2-stat-label">Latest Checkout</span>
+                <div className="ov2-stat-val-row">
+                  <span className="ov2-stat-val" style={{ fontSize: 20, paddingTop: 4 }}>{formatMoney(latestCheckout)}</span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ── MAIN TWO-COLUMN GRID ── */}
+      <div className="ov2-main-grid">
+        {/* LEFT — Checkout Price Chart + Links Table */}
+        <div className="ov2-left-col">
+          {/* Price History Chart */}
+          <div className="ov2-section">
+            <div className="ov2-section-header">
+              <h2 className="ov2-section-title">Checkout Price History</h2>
+              <span className="ov2-tasks-done-pill">{totalRuns > 0 ? `${totalRuns} runs` : "No runs yet"}</span>
+            </div>
+            <div className="ov2-chart-wrap">
+              <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="xMidYMid meet" style={{ overflow: "visible" }}>
+                <defs>
+                  <linearGradient id="grad-blue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.15"/>
+                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0"/>
+                  </linearGradient>
+                </defs>
+                {/* Grid lines + Y labels */}
+                {yTicks.map(v => (
+                  <g key={v}>
+                    <line x1={chartPad.left} y1={toY(v)} x2={chartPad.left + innerW} y2={toY(v)} stroke="#f1f5f9" strokeWidth="1"/>
+                    <text x={chartPad.left - 6} y={toY(v) + 4} textAnchor="end" fontSize="10" fill="#9ca3af">{formatChartY(v)}</text>
+                  </g>
+                ))}
+                {/* Area fill */}
+                <path d={makeArea(chartData)} fill="url(#grad-blue)" />
+                {/* Line */}
+                <path d={makePath(chartData)} fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
+                {/* X labels */}
+                {chartLabels.map((lbl, i) => (
+                  <text key={i} x={toX(i)} y={chartPad.top + innerH + 18} textAnchor="middle" fontSize="10" fill="#9ca3af">{lbl}</text>
+                ))}
+                {/* Hover areas */}
+                {chartData.map((_, i) => (
+                  <rect
+                    key={i}
+                    x={toX(i) - 20}
+                    y={chartPad.top}
+                    width="40"
+                    height={innerH}
+                    fill="transparent"
+                    style={{ cursor: "pointer" }}
+                    onMouseEnter={() => setHoveredChartPt(i)}
+                    onMouseLeave={() => setHoveredChartPt(null)}
+                  />
+                ))}
+                {hoveredChartPt !== null && (
+                  <>
+                    <line x1={toX(hoveredChartPt)} y1={chartPad.top} x2={toX(hoveredChartPt)} y2={chartPad.top + innerH} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4,3"/>
+                    <circle cx={toX(hoveredChartPt)} cy={toY(chartData[hoveredChartPt])} r="5" fill="#3b82f6" stroke="white" strokeWidth="2"/>
+                    <foreignObject
+                      x={Math.min(Math.max(toX(hoveredChartPt) - 55, 0), chartW - 120)}
+                      y={Math.max(toY(chartData[hoveredChartPt]) - 70, 0)}
+                      width="120" height="60"
+                    >
+                      <div className="chart-tooltip-box">
+                        <span className="chart-tooltip-date">{chartLabels[hoveredChartPt]}</span>
+                        <div className="chart-tooltip-row">
+                          <span className="chart-tooltip-dot" style={{ background: "#3b82f6" }}/>
+                          <span className="chart-tooltip-key">Checkout</span>
+                          <span className="chart-tooltip-val">{priceRuns.length >= 2 ? formatMoney(priceRuns[hoveredChartPt]?.checkoutTotal) : `LKR ${chartData[hoveredChartPt].toLocaleString()}`}</span>
+                        </div>
+                      </div>
+                    </foreignObject>
+                  </>
+                )}
+              </svg>
+            </div>
+          </div>
+
+          {/* Monitored Products Table */}
+          <div className="ov2-section">
+            <div className="ov2-section-header">
+              <h2 className="ov2-section-title">Monitored Products</h2>
+              <button type="button" className="ov2-period-select" style={{ cursor: "pointer", border: "none", background: "#1a1a1a", color: "#fff", borderRadius: "100px", padding: "6px 16px", fontSize: 13, fontWeight: 600 }} onClick={onCreateClick}>
+                + Add Product
               </button>
             </div>
-          ))}
+            {links.length === 0 ? (
+              <div className="ov2-empty-state">
+                <div className="ov2-empty-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="40" height="40">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                  </svg>
+                </div>
+                <p className="ov2-empty-text">No products monitored yet.</p>
+                <p className="ov2-empty-sub">Click "+ Add Product" to start tracking Daraz checkout prices.</p>
+              </div>
+            ) : (
+              <div className="ov2-links-table">
+                <div className="ov2-links-thead">
+                  <span>Product</span>
+                  <span>Listed Price</span>
+                  <span>Status</span>
+                </div>
+                {links.map(link => {
+                  const price = parseObservedPrice(link);
+                  return (
+                    <div className="ov2-links-row" key={link.id}>
+                      <div className="ov2-links-row-name">
+                        {link.imageUrl && (
+                          <div className="ov2-prod-thumb">
+                            <img src={link.imageUrl} alt={link.title} />
+                          </div>
+                        )}
+                        <div>
+                          <p className="ov2-prod-title">{link.title}</p>
+                          <a href={link.url} target="_blank" rel="noreferrer" className="ov2-prod-url">View on Daraz ↗</a>
+                        </div>
+                      </div>
+                      <span className="ov2-prod-price">{formatMoney(price)}</span>
+                      <span className={`ov2-prod-badge ${sessionActive ? "badge-active" : "badge-inactive"}`}>
+                        {sessionActive ? "Active" : "Offline"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT — Recent Checks */}
+        <div className="ov2-right-col">
+          <div className="ov2-section">
+            <div className="ov2-section-header">
+              <h2 className="ov2-section-title">Recent Checks</h2>
+              <span className="ov2-tasks-done-pill">{checkedCount} verified</span>
+            </div>
+            {history.length === 0 ? (
+              <div className="ov2-empty-state">
+                <div className="ov2-empty-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="40" height="40">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                  </svg>
+                </div>
+                <p className="ov2-empty-text">No checks run yet.</p>
+                <p className="ov2-empty-sub">Go to the Tasks tab to start a price verification run.</p>
+              </div>
+            ) : (
+              <div className="ov2-tasks-list">
+                {history.slice(0, 8).map((run, idx) => {
+                  const isOk = run.status === "checked";
+                  const dateStr = new Date(run.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  const timeStr = new Date(run.startedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+                  const iconBgs = ["#e8eaf6","#fff3e0","#e8f5e9","#fce4ec","#e0f7fa","#f3e5f5","#fff8e1","#e8f5e9"];
+                  const icons = ["📋","🔍","✅","⚠️","🛒","💰","📊","🔄"];
+                  return (
+                    <div className="ov2-task-row" key={run.runId || idx}>
+                      <div className="ov2-task-icon" style={{ background: iconBgs[idx % iconBgs.length] }}>
+                        <span style={{ fontSize: 16 }}>{icons[idx % icons.length]}</span>
+                      </div>
+                      <div className="ov2-check-info">
+                        <span className="ov2-task-title" style={{ fontSize: 13 }}>
+                          {run.products[0]?.title ? run.products[0].title.substring(0, 30) + (run.products[0].title.length > 30 ? "..." : "") : `Run #${totalRuns - idx}`}
+                        </span>
+                        <span className="ov2-check-date">{dateStr} · {timeStr}</span>
+                      </div>
+                      <div className="ov2-task-status">
+                        <span className="ov2-task-status-dot" style={{ background: isOk ? "#22c55e" : run.status === "blocked" ? "#ef4444" : "#f59e0b" }}/>
+                        <span className="ov2-task-status-text" style={{ color: isOk ? "#22c55e" : run.status === "blocked" ? "#ef4444" : "#f59e0b" }}>
+                          {isOk ? "Verified" : run.status === "blocked" ? "Blocked" : "Partial"}
+                        </span>
+                      </div>
+                      {isOk && run.checkoutTotal && (
+                        <span className="ov2-check-total">{formatMoney(run.checkoutTotal)}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Daraz session quick status */}
+          <div className="ov2-section">
+            <h2 className="ov2-section-title" style={{ marginBottom: 16 }}>Session Status</h2>
+            <div className="ov2-session-card">
+              <div className="ov2-session-row">
+                <span className="ov2-session-label">Daraz Login</span>
+                <span className={`ov2-prod-badge ${sessionActive ? "badge-active" : "badge-inactive"}`}>
+                  {sessionActive ? "Connected" : darazSession.status === "expired" ? "Expired" : "Not set up"}
+                </span>
+              </div>
+              {darazSession.message && (
+                <p className="ov2-session-msg">{darazSession.message}</p>
+              )}
+              {!sessionActive && (
+                <p className="ov2-session-hint">Go to the <strong>Tasks</strong> tab to connect your Daraz account and run price checks.</p>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
+
 /* ============================================================
    PRODUCTS TAB PANEL
-   ============================================================ */
 function ProductsPanel({
   links,
   searchQuery,

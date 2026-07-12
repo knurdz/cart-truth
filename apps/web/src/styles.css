@@ -5323,4 +5323,225 @@ body.dashboard-mode {
   color: #111111;
 }
 
+/* ============================================================
+   FULL-WIDTH LAYOUT — two-column main grid
+   ============================================================ */
+
+/* Remove max-width cap so content fills the full main panel */
+.ov2-layout {
+  max-width: none !important;
+}
+
+/* Two-column grid: 60% left (chart + table), 40% right (checks + session) */
+.ov2-main-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 48px;
+  margin-top: 8px;
+}
+
+.ov2-left-col,
+.ov2-right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+/* Monitored products table */
+.ov2-links-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ov2-links-thead {
+  display: grid;
+  grid-template-columns: 1fr 120px 80px;
+  gap: 16px;
+  padding: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.ov2-links-row {
+  display: grid;
+  grid-template-columns: 1fr 120px 80px;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #f7f8fa;
+}
+
+.ov2-links-row:last-child {
+  border-bottom: none;
+}
+
+.ov2-links-row-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ov2-prod-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f7f8fa;
+  flex-shrink: 0;
+  border: 1px solid #f1f5f9;
+}
+
+.ov2-prod-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ov2-prod-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111111;
+  margin: 0 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+.ov2-prod-url {
+  font-size: 11px;
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+.ov2-prod-url:hover {
+  text-decoration: underline;
+}
+
+.ov2-prod-price {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111111;
+}
+
+.ov2-prod-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 100px;
+  display: inline-block;
+}
+
+.ov2-prod-badge.badge-active {
+  background: #e6f9f0;
+  color: #16a34a;
+}
+
+.ov2-prod-badge.badge-inactive {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* Recent checks row enhancements */
+.ov2-check-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ov2-check-date {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.ov2-check-total {
+  font-size: 12px;
+  font-weight: 700;
+  color: #16a34a;
+  white-space: nowrap;
+}
+
+/* Session status card */
+.ov2-session-card {
+  background: #f7f8fa;
+  border-radius: 14px;
+  padding: 16px 20px;
+  border: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ov2-session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ov2-session-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.ov2-session-msg {
+  font-size: 12px;
+  color: #f59e0b;
+  margin: 0;
+  background: #fffbeb;
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.ov2-session-hint {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.ov2-session-hint strong {
+  color: #374151;
+}
+
+/* Empty states */
+.ov2-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  gap: 8px;
+  text-align: center;
+}
+
+.ov2-empty-icon {
+  margin-bottom: 4px;
+}
+
+.ov2-empty-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0;
+}
+
+.ov2-empty-sub {
+  font-size: 13px;
+  color: #9ca3af;
+  margin: 0;
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+
 
