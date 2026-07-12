@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
+import "./fin-dash.css";
 
 type Money = { currency: string; minorUnits?: number; amount?: string | number };
 
@@ -1066,159 +1067,478 @@ function ContactSection() {
    SIDEBAR NAV ITEM
    ============================================================ */
 function SidebarNavItem({
-  icon, label, active, onClick, showPlus
+  icon, label, active, onClick
 }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; showPlus?: boolean }) {
   return (
     <button
       type="button"
-      className={`db-nav-item${active ? " db-nav-item--active" : ""}`}
+      className={`fd-nav-item${active ? " fd-nav-item--active" : ""}`}
       onClick={onClick}
     >
-      <span className="db-nav-icon">{icon}</span>
-      <span className="db-nav-label">{label}</span>
-      {showPlus && <span className="db-nav-plus">+</span>}
+      <span className="fd-nav-icon">{icon}</span>
+      <span className="fd-nav-label">{label}</span>
     </button>
   );
 }
 
-/* ============================================================
-   STAT CARD
-   ============================================================ */
+function DashboardHeader({
+  user,
+  searchQuery,
+  onSearchChange,
+  primaryLabel,
+  onPrimaryAction,
+  showSearch = true
+}: {
+  user: AppUser;
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
+  primaryLabel: string;
+  onPrimaryAction: () => void;
+  showSearch?: boolean;
+}) {
+  const firstName = (user.displayName?.split(" ")[0] || user.email?.split("@")[0] || user.username) ?? "there";
+  const today = new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  return (
+    <header className="fd-header">
+      <div className="fd-header-greeting">
+        <h1 className="fd-header-title">Hi, {firstName}!</h1>
+        <p className="fd-header-date">{today}</p>
+      </div>
+      {showSearch && (
+        <div className="fd-header-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            type="search"
+            className="fd-header-search-input"
+            placeholder="Search products..."
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+          />
+          <span className="fd-header-search-kbd">⌘K</span>
+        </div>
+      )}
+      <div className="fd-header-actions">
+        <button type="button" className="fd-header-icon-btn" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+        <button type="button" className="fd-header-icon-btn" title="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+        </button>
+        <button type="button" className="fd-header-primary-btn" onClick={onPrimaryAction}>
+          {primaryLabel}
+        </button>
+      </div>
+    </header>
+  );
+}
+
 function StatCard({
-  label, value, delta, deltaLabel, icon, iconBg
+  label, value, delta, deltaLabel, icon, iconBg, note
 }: {
   label: string;
   value: string;
   delta?: number;
   deltaLabel?: string;
-  icon: React.ReactNode;
-  iconBg: string;
+  icon?: React.ReactNode;
+  iconBg?: string;
+  note?: string;
 }) {
   const positive = delta !== undefined && delta >= 0;
   return (
-    <div className="db-stat-card">
-      <div className="db-stat-body">
-        <p className="db-stat-label">{label}</p>
-        <p className="db-stat-value">{value}</p>
+    <div className="fd-stat-card">
+      <div className="fd-stat-body">
+        <p className="fd-stat-label">{label}</p>
+        <p className="fd-stat-value">{value}</p>
         {delta !== undefined && (
-          <p className={`db-stat-delta ${positive ? "db-stat-delta--up" : "db-stat-delta--down"}`}>
-            <span>{positive ? "▲" : "▼"} {Math.abs(delta)}%</span>
-            {deltaLabel && <span className="db-stat-delta-note"> {deltaLabel}</span>}
+          <p className={`fd-stat-delta ${positive ? "fd-stat-delta--up" : "fd-stat-delta--down"}`}>
+            <span>{positive ? "+" : ""}{delta}%</span>
+            {deltaLabel && <span className="fd-stat-delta-note">{deltaLabel}</span>}
           </p>
         )}
+        {note && <p className="fd-stat-note">{note}</p>}
       </div>
-      <div className="db-stat-icon" style={{ background: iconBg }}>
-        {icon}
-      </div>
+      {icon && iconBg && (
+        <div className="fd-stat-icon" style={{ background: iconBg }}>
+          {icon}
+        </div>
+      )}
     </div>
   );
 }
 
-/* ============================================================
-   MINI LINE CHART (pure SVG)
-   ============================================================ */
-function MiniLineChart({
-  data, color, label, sublabel
+function FinSummaryCard({
+  title, value, badge, badgeType, description, children
 }: {
-  data: number[];
-  color: string;
-  label: string;
-  sublabel: string;
+  title: string;
+  value: string;
+  badge?: string;
+  badgeType?: "up" | "down" | "neutral";
+  description?: string;
+  children?: React.ReactNode;
 }) {
-  const w = 300; const h = 80; const pad = 4;
-  const max = Math.max(...data, 1);
-  const min = Math.min(...data, 0);
-  const range = max - min || 1;
-  const pts = data.map((v, i) => {
-    const x = pad + (i / (data.length - 1)) * (w - pad * 2);
-    const y = pad + (1 - (v - min) / range) * (h - pad * 2);
-    return `${x},${y}`;
-  });
-  const polyline = pts.join(" ");
+  return (
+    <div className="fd-summary-card">
+      <div className="fd-summary-top">
+        <span className="fd-summary-title">{title}</span>
+        {badge && (
+          <span className={`fd-badge fd-badge--${badgeType ?? "neutral"}`}>{badge}</span>
+        )}
+      </div>
+      <p className="fd-summary-value">{value}</p>
+      {description && <p className="fd-summary-desc">{description}</p>}
+      {children}
+    </div>
+  );
+}
+
+function RingGauge({ value, label, sublabel, color = "#2563eb", size = 80 }: {
+  value: number;
+  label: string;
+  sublabel?: string;
+  color?: string;
+  size?: number;
+}) {
+  const r = (size - 12) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference - (Math.min(value, 100) / 100) * circumference;
 
   return (
-    <div className="db-chart-card">
-      <div className="db-chart-header">
-        <div>
-          <p className="db-chart-title">{label}</p>
-          <p className="db-chart-sub">{sublabel}</p>
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="db-chart-svg" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id={`grad-${label.replace(/\s/g, "")}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.2" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <polygon
-          points={`${pts[0].split(",")[0]},${h} ${polyline} ${pts[pts.length - 1].split(",")[0]},${h}`}
-          fill={`url(#grad-${label.replace(/\s/g, "")})`}
+    <div className="fd-ring-gauge">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#eef2f7" strokeWidth="8" />
+        <circle
+          cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth="8"
+          strokeDasharray={circumference} strokeDashoffset={offset}
+          strokeLinecap="round" transform={`rotate(-90 ${cx} ${cy})`}
         />
-        <polyline points={polyline} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-        {data.map((_, i) => {
-          const [x, y] = pts[i].split(",");
-          return <circle key={i} cx={x} cy={y} r="3" fill={color} stroke="white" strokeWidth="1.5" />;
-        })}
+        <text x={cx} y={cy + 5} textAnchor="middle" fontSize="14" fontWeight="700" fill="#111827">{value}%</text>
       </svg>
+      <div className="fd-ring-labels">
+        <span className="fd-ring-label">{label}</span>
+        {sublabel && <span className="fd-ring-sublabel">{sublabel}</span>}
+      </div>
     </div>
   );
 }
 
-/* ============================================================
-   MINI BAR CHART (pure SVG)
-   ============================================================ */
-function MiniBarChart({
-  data, labels, color, label, sublabel
+function LargeAreaChart({
+  data, labels, title, subtitle, headline, headlineNote, badge, badgeType, height = 300, formatValue
 }: {
   data: number[];
   labels: string[];
-  color: string;
-  label: string;
-  sublabel: string;
+  title: string;
+  subtitle?: string;
+  headline?: string;
+  headlineNote?: string;
+  badge?: string;
+  badgeType?: "up" | "down";
+  height?: number;
+  formatValue?: (v: number) => string;
 }) {
-  const w = 300; const h = 80; const pad = 4;
-  const max = Math.max(...data, 1);
-  const barW = (w - pad * 2) / data.length * 0.6;
-  const gap = (w - pad * 2) / data.length;
+  const [hovered, setHovered] = useState<number | null>(null);
+  const w = 720;
+  const h = height;
+  const pad = { top: 24, right: 16, bottom: 36, left: 52 };
+  const innerW = w - pad.left - pad.right;
+  const innerH = h - pad.top - pad.bottom;
+  const maxVal = Math.max(...data, 1) * 1.15;
+  const toX = (i: number) => pad.left + (i / Math.max(data.length - 1, 1)) * innerW;
+  const toY = (v: number) => pad.top + innerH - (v / maxVal) * innerH;
+  const makePath = (pts: number[]) =>
+    pts.map((v, i) => `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
+  const makeArea = (pts: number[]) =>
+    `${makePath(pts)} L${toX(pts.length - 1).toFixed(1)},${(pad.top + innerH).toFixed(1)} L${pad.left.toFixed(1)},${(pad.top + innerH).toFixed(1)} Z`;
+  const yTicks = Array.from({ length: 5 }, (_, i) => Math.round((maxVal / 4) * i));
+  const fmt = formatValue ?? ((v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v)));
 
   return (
-    <div className="db-chart-card">
-      <div className="db-chart-header">
+    <div className="fd-chart-card fd-chart-card--large">
+      <div className="fd-chart-card-header">
         <div>
-          <p className="db-chart-title">{label}</p>
-          <p className="db-chart-sub">{sublabel}</p>
+          <h3 className="fd-chart-card-title">{title}</h3>
+          {subtitle && <p className="fd-chart-card-sub">{subtitle}</p>}
+        </div>
+        <div className="fd-chart-card-actions">
+          <span className="fd-chart-pill">Last {data.length} runs</span>
         </div>
       </div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="db-chart-svg" preserveAspectRatio="none">
-        {data.map((v, i) => {
-          const barH = (v / max) * (h - pad * 2 - 12);
-          const x = pad + i * gap + gap * 0.2;
-          const y = h - pad - barH - 12;
-          return (
-            <g key={i}>
-              <rect x={x} y={y} width={barW} height={barH} rx="2" fill={color} opacity={0.85} />
-              <text x={x + barW / 2} y={h - 2} textAnchor="middle" fontSize="8" fill="#94a3b8">{labels[i]}</text>
+      {(headline || badge) && (
+        <div className="fd-chart-headline-row">
+          {headline && <span className="fd-chart-headline">{headline}</span>}
+          {badge && <span className={`fd-badge fd-badge--${badgeType ?? "up"}`}>{badge}</span>}
+          {headlineNote && <span className="fd-chart-headline-note">{headlineNote}</span>}
+        </div>
+      )}
+      <div className="fd-chart-svg-wrap">
+        <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id="fd-area-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#2563eb" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="#2563eb" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {yTicks.map(v => (
+            <g key={v}>
+              <line x1={pad.left} y1={toY(v)} x2={pad.left + innerW} y2={toY(v)} stroke="#eef2f7" strokeWidth="1" />
+              <text x={pad.left - 8} y={toY(v) + 4} textAnchor="end" fontSize="11" fill="#9ca3af">{fmt(v)}</text>
             </g>
-          );
-        })}
-      </svg>
+          ))}
+          <path d={makeArea(data)} fill="url(#fd-area-grad)" />
+          <path d={makePath(data)} fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+          {labels.map((lbl, i) => (
+            <text key={i} x={toX(i)} y={pad.top + innerH + 22} textAnchor="middle" fontSize="11" fill="#9ca3af">{lbl}</text>
+          ))}
+          {data.map((_, i) => (
+            <rect
+              key={i} x={toX(i) - 24} y={pad.top} width="48" height={innerH}
+              fill="transparent" style={{ cursor: "pointer" }}
+              onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}
+            />
+          ))}
+          {hovered !== null && (
+            <>
+              <line x1={toX(hovered)} y1={pad.top} x2={toX(hovered)} y2={pad.top + innerH} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4,3" />
+              <circle cx={toX(hovered)} cy={toY(data[hovered])} r="5" fill="#2563eb" stroke="white" strokeWidth="2" />
+            </>
+          )}
+        </svg>
+      </div>
     </div>
   );
 }
 
-/* ============================================================
-   DONUT CHART (pure SVG)
-   ============================================================ */
-function DonutChart({
-  segments, label, sublabel
+function truncateLabel(text: string, max = 14) {
+  return text.length > max ? `${text.substring(0, max)}…` : text;
+}
+
+function moneyToMajor(value?: Money) {
+  return (value?.minorUnits ?? 0) / 100;
+}
+
+function buildProductCompareChart(links: SavedLink[], latest?: DarazCheckResult) {
+  const items = links.slice(0, 8);
+  if (items.length === 0) {
+    return {
+      labels: ["Product A", "Product B", "Product C"],
+      series: [
+        { name: "Listed", color: "#93c5fd", data: [1200, 890, 1450] },
+        { name: "Checkout", color: "#2563eb", data: [1340, 1020, 1580] }
+      ],
+      isSample: true
+    };
+  }
+  const labels = items.map(l => truncateLabel(l.title, 12));
+  const listed = items.map(l => moneyToMajor(parseObservedPrice(l)));
+  const checkout = items.map(link => {
+    const match = latest?.products.find(p => p.url === link.url || p.title === link.title);
+    return moneyToMajor(match?.checkoutLinePrice ?? match?.checkoutUnitPrice ?? match?.observedPrice);
+  });
+  return {
+    labels,
+    series: [
+      { name: "Listed", color: "#93c5fd", data: listed },
+      { name: "Checkout", color: "#2563eb", data: checkout }
+    ],
+    isSample: false
+  };
+}
+
+function LargeGroupedBarChart({
+  series, labels, title, subtitle, headline, headlineNote, height = 300, formatValue
+}: {
+  series: Array<{ name: string; color: string; data: number[] }>;
+  labels: string[];
+  title: string;
+  subtitle?: string;
+  headline?: string;
+  headlineNote?: string;
+  height?: number;
+  formatValue?: (v: number) => string;
+}) {
+  const [hovered, setHovered] = useState<{ group: number; series: number } | null>(null);
+  const w = 720;
+  const h = height;
+  const pad = { top: 24, right: 16, bottom: 44, left: 52 };
+  const innerW = w - pad.left - pad.right;
+  const innerH = h - pad.top - pad.bottom;
+  const allValues = series.flatMap(s => s.data);
+  const maxVal = Math.max(...allValues, 1) * 1.15;
+  const gap = innerW / Math.max(labels.length, 1);
+  const groupW = gap * 0.72;
+  const barW = groupW / Math.max(series.length, 1) * 0.88;
+  const yTicks = Array.from({ length: 5 }, (_, i) => Math.round((maxVal / 4) * i));
+  const fmt = formatValue ?? ((v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v)));
+
+  return (
+    <div className="fd-chart-card fd-chart-card--large">
+      <div className="fd-chart-card-header">
+        <div>
+          <h3 className="fd-chart-card-title">{title}</h3>
+          {subtitle && <p className="fd-chart-card-sub">{subtitle}</p>}
+        </div>
+        <div className="fd-chart-legend">
+          {series.map(seg => (
+            <span key={seg.name} className="fd-chart-legend-item">
+              <span className="fd-chart-legend-dot" style={{ background: seg.color }} />
+              {seg.name}
+            </span>
+          ))}
+        </div>
+      </div>
+      {(headline || headlineNote) && (
+        <div className="fd-chart-headline-row">
+          {headline && <span className="fd-chart-headline">{headline}</span>}
+          {headlineNote && <span className="fd-chart-headline-note">{headlineNote}</span>}
+        </div>
+      )}
+      <div className="fd-chart-svg-wrap">
+        <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
+          {yTicks.map(v => {
+            const y = pad.top + innerH - (v / maxVal) * innerH;
+            return (
+              <g key={v}>
+                <line x1={pad.left} y1={y} x2={pad.left + innerW} y2={y} stroke="#eef2f7" strokeWidth="1" />
+                <text x={pad.left - 8} y={y + 4} textAnchor="end" fontSize="11" fill="#9ca3af">{fmt(v)}</text>
+              </g>
+            );
+          })}
+          {labels.map((lbl, gi) => {
+            const groupX = pad.left + gi * gap + (gap - groupW) / 2;
+            return (
+              <g key={gi}>
+                {series.map((seg, si) => {
+                  const val = seg.data[gi] ?? 0;
+                  const barH = (val / maxVal) * innerH;
+                  const x = groupX + si * (groupW / series.length) + (groupW / series.length - barW) / 2;
+                  const y = pad.top + innerH - barH;
+                  const isHovered = hovered?.group === gi && hovered?.series === si;
+                  return (
+                    <rect
+                      key={seg.name}
+                      x={x} y={y} width={barW} height={Math.max(barH, val > 0 ? 2 : 0)}
+                      rx="3" fill={seg.color}
+                      opacity={isHovered ? 1 : 0.88}
+                      style={{ cursor: "pointer" }}
+                      onMouseEnter={() => setHovered({ group: gi, series: si })}
+                      onMouseLeave={() => setHovered(null)}
+                    />
+                  );
+                })}
+                <text x={pad.left + gi * gap + gap / 2} y={pad.top + innerH + 20} textAnchor="middle" fontSize="10" fill="#9ca3af">{lbl}</text>
+              </g>
+            );
+          })}
+          {hovered !== null && series[hovered.series] && (
+            <text
+              x={pad.left + hovered.group * gap + gap / 2}
+              y={pad.top - 6}
+              textAnchor="middle" fontSize="11" fontWeight="700" fill="#111827"
+            >
+              {series[hovered.series].name}: {fmt(series[hovered.series].data[hovered.group] ?? 0)}
+            </text>
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function LargeStackedBarChart({
+  series, labels, title, subtitle, legend, height = 300, formatValue
+}: {
+  series: Array<{ name: string; color: string; data: number[] }>;
+  labels: string[];
+  title: string;
+  subtitle?: string;
+  legend?: boolean;
+  height?: number;
+  formatValue?: (v: number) => string;
+}) {
+  const w = 720;
+  const h = height;
+  const pad = { top: 24, right: 16, bottom: 44, left: 52 };
+  const innerW = w - pad.left - pad.right;
+  const innerH = h - pad.top - pad.bottom;
+  const totals = labels.map((_, i) => series.reduce((s, seg) => s + (seg.data[i] ?? 0), 0));
+  const maxVal = Math.max(...totals, ...series.flatMap(s => s.data), 1) * 1.15;
+  const barW = innerW / labels.length * 0.55;
+  const gap = innerW / labels.length;
+  const yTicks = Array.from({ length: 5 }, (_, i) => Math.round((maxVal / 4) * i));
+  const fmt = formatValue ?? ((v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v)));
+
+  return (
+    <div className="fd-chart-card fd-chart-card--large">
+      <div className="fd-chart-card-header">
+        <div>
+          <h3 className="fd-chart-card-title">{title}</h3>
+          {subtitle && <p className="fd-chart-card-sub">{subtitle}</p>}
+        </div>
+        {legend !== false && (
+          <div className="fd-chart-legend">
+            {series.map(seg => (
+              <span key={seg.name} className="fd-chart-legend-item">
+                <span className="fd-chart-legend-dot" style={{ background: seg.color }} />
+                {seg.name}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="fd-chart-svg-wrap">
+        <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
+          {yTicks.map(v => (
+            <g key={v}>
+              <line x1={pad.left} y1={pad.top + innerH - (v / maxVal) * innerH} x2={pad.left + innerW} y2={pad.top + innerH - (v / maxVal) * innerH} stroke="#eef2f7" strokeWidth="1" />
+              <text x={pad.left - 8} y={pad.top + innerH - (v / maxVal) * innerH + 4} textAnchor="end" fontSize="11" fill="#9ca3af">{fmt(v)}</text>
+            </g>
+          ))}
+          {labels.map((lbl, i) => {
+            const x = pad.left + i * gap + (gap - barW) / 2;
+            let yOffset = pad.top + innerH;
+            return (
+              <g key={i}>
+                {series.map(seg => {
+                  const val = seg.data[i] ?? 0;
+                  const barH = (val / maxVal) * innerH;
+                  yOffset -= barH;
+                  return (
+                    <rect key={seg.name} x={x} y={yOffset} width={barW} height={barH} rx="3" fill={seg.color} />
+                  );
+                })}
+                <text x={x + barW / 2} y={pad.top + innerH + 22} textAnchor="middle" fontSize="11" fill="#9ca3af">{lbl}</text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function LargeDonutChart({
+  segments, title, subtitle, size = 140
 }: {
   segments: Array<{ value: number; color: string; name: string }>;
-  label: string;
-  sublabel: string;
+  title: string;
+  subtitle?: string;
+  size?: number;
 }) {
   const total = segments.reduce((s, seg) => s + seg.value, 0) || 1;
-  const r = 28; const cx = 36; const cy = 36;
+  const r = size / 2 - 14;
+  const cx = size / 2;
+  const cy = size / 2;
   let angle = -Math.PI / 2;
   const arcs = segments.map((seg) => {
     const ratio = seg.value / total;
@@ -1233,30 +1553,56 @@ function DonutChart({
   });
 
   return (
-    <div className="db-chart-card">
-      <div className="db-chart-header">
+    <div className="fd-chart-card">
+      <div className="fd-chart-card-header">
         <div>
-          <p className="db-chart-title">{label}</p>
-          <p className="db-chart-sub">{sublabel}</p>
+          <h3 className="fd-chart-card-title">{title}</h3>
+          {subtitle && <p className="fd-chart-card-sub">{subtitle}</p>}
         </div>
       </div>
-      <div className="db-donut-wrap">
-        <svg viewBox="0 0 72 72" width="72" height="72">
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f1f5f9" strokeWidth="8" />
+      <div className="fd-donut-wrap">
+        <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#eef2f7" strokeWidth="14" />
           {arcs.map((arc, i) => (
-            <path key={i} d={arc.d} fill="none" stroke={arc.color} strokeWidth="8" strokeLinecap="round" />
+            <path key={i} d={arc.d} fill="none" stroke={arc.color} strokeWidth="14" strokeLinecap="butt" />
           ))}
+          <text x={cx} y={cy - 4} textAnchor="middle" fontSize="18" fontWeight="800" fill="#111827">{total}</text>
+          <text x={cx} y={cy + 14} textAnchor="middle" fontSize="10" fill="#9ca3af">total</text>
         </svg>
-        <div className="db-donut-legend">
+        <div className="fd-donut-legend">
           {arcs.map((arc, i) => (
-            <div key={i} className="db-donut-legend-item">
-              <span className="db-donut-dot" style={{ background: arc.color }} />
-              <span>{arc.name}: {arc.value}</span>
+            <div key={i} className="fd-donut-legend-item">
+              <span className="fd-donut-dot" style={{ background: arc.color }} />
+              <span className="fd-donut-legend-name">{arc.name}</span>
+              <span className="fd-donut-legend-val">{arc.value}</span>
             </div>
           ))}
         </div>
       </div>
     </div>
+  );
+}
+
+function MiniSparkline({ data, color = "#22c55e", width = 120, height = 40 }: {
+  data: number[];
+  color?: string;
+  width?: number;
+  height?: number;
+}) {
+  const pad = 2;
+  const max = Math.max(...data, 1);
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = pad + (i / Math.max(data.length - 1, 1)) * (width - pad * 2);
+    const y = pad + (1 - (v - min) / range) * (height - pad * 2);
+    return `${x},${y}`;
+  }).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} className="fd-sparkline">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -1439,15 +1785,6 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     await refresh().catch(() => undefined);
   }
 
-  const navLabel = 
-    tab === "dashboard" ? "Dashboard" :
-    tab === "products" ? "Products" :
-    tab === "session" ? "Customers" : 
-    tab === "messages" ? "Shop" : 
-    tab === "admin" ? "Income" : 
-    tab === "settings" ? "Promote" : "Settings";
-
-  // Handle setting body class for dark mode dynamically
   useEffect(() => {
     if (darkMode) {
       document.body.classList.add("dark-theme");
@@ -1456,72 +1793,48 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     }
   }, [darkMode]);
 
+  const primaryAction = tab === "products" || tab === "session"
+    ? () => void checkAllLinks()
+    : () => setShowCreateModal(true);
+  const primaryLabel = tab === "products" || tab === "session"
+    ? (checking ? "Running..." : "Run Check")
+    : "Monitor Product";
+
   return (
-    <div className={`db-shell ${darkMode ? "dark-theme" : ""}`}>
-      {/* ── SIDEBAR ── */}
-      <aside className="db-sidebar">
-        {/* Logo */}
-        <div className="db-sidebar-logo">
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <circle cx="10" cy="10" r="4" fill="#1a1a1a" opacity="0.8"/>
-            <circle cx="22" cy="10" r="4" fill="#1a1a1a" opacity="0.5"/>
-            <circle cx="10" cy="22" r="4" fill="#1a1a1a" opacity="0.5"/>
-            <circle cx="22" cy="22" r="4" fill="#1a1a1a" opacity="0.3"/>
+    <div className={`fd-shell ${darkMode ? "dark-theme" : ""}`}>
+      <aside className="fd-sidebar">
+        <div className="fd-sidebar-logo">
+          <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+            <circle cx="10" cy="10" r="4" fill="#111827"/>
+            <circle cx="22" cy="10" r="4" fill="#111827" opacity="0.5"/>
+            <circle cx="10" cy="22" r="4" fill="#111827" opacity="0.5"/>
+            <circle cx="22" cy="22" r="4" fill="#111827" opacity="0.3"/>
           </svg>
-          <span className="db-sidebar-logo-text">CartTruth</span>
+          <span className="fd-sidebar-logo-text">CartTruth</span>
         </div>
 
-        {/* Nav */}
-        <nav className="db-sidebar-nav">
+        <nav className="fd-sidebar-nav">
           <SidebarNavItem
-            icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                <polyline points="9 22 9 12 15 12 15 22"/>
-              </svg>
-            }
+            icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>}
             label="Home"
             active={tab === "dashboard"}
             onClick={() => setTab("dashboard")}
           />
           <SidebarNavItem
-            icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                <rect x="3" y="3" width="7" height="7" rx="1"/>
-                <rect x="14" y="3" width="7" height="7" rx="1"/>
-                <rect x="3" y="14" width="7" height="7" rx="1"/>
-                <rect x="14" y="14" width="7" height="7" rx="1"/>
-              </svg>
-            }
+            icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>}
             label="Products"
             active={tab === "products"}
             onClick={() => setTab("products")}
-            showPlus
           />
           <SidebarNavItem
-            icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                <rect x="3" y="5" width="18" height="14" rx="2"/>
-                <line x1="3" y1="10" x2="21" y2="10"/>
-                <line x1="8" y1="3" x2="8" y2="7"/>
-                <line x1="16" y1="3" x2="16" y2="7"/>
-              </svg>
-            }
+            icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg>}
             label="Daraz Session"
             active={tab === "session"}
             onClick={() => setTab("session")}
-            showPlus
           />
           {user.role === "admin" && (
             <SidebarNavItem
-              icon={
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                  <circle cx="9" cy="7" r="4"/>
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                </svg>
-              }
+              icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>}
               label="Messages"
               active={tab === "messages"}
               onClick={() => setTab("messages")}
@@ -1529,100 +1842,103 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
           )}
           {user.role === "admin" && (
             <SidebarNavItem
-              icon={
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                  <line x1="9" y1="9" x2="15" y2="15"/>
-                  <line x1="15" y1="9" x2="9" y2="15"/>
-                </svg>
-              }
+              icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>}
               label="Admin Panel"
               active={tab === "admin"}
               onClick={() => setTab("admin")}
             />
           )}
           <SidebarNavItem
-            icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-              </svg>
-            }
+            icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>}
             label="Settings"
             active={tab === "settings"}
             onClick={() => setTab("settings")}
           />
         </nav>
 
-        {/* Upgrade card */}
-        <div className="sidebar-upgrade-card">
-          <p className="sidebar-upgrade-title">Upgrade to Pro</p>
-          <p className="sidebar-upgrade-sub">Get 1 month free and unlock</p>
-          <button type="button" className="sidebar-upgrade-btn" onClick={() => setTab("settings")}>Upgrade</button>
-        </div>
-
-        {/* Bottom links */}
-        <div className="db-sidebar-bottom">
-          <button type="button" className="sidebar-bottom-link" onClick={() => setTab("settings")}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-            Help &amp; information
+        <div className="fd-sidebar-footer">
+          <div className="fd-sidebar-user">
+            <div className="fd-sidebar-avatar">
+              {user.avatarUrl ? (
+                <img src={user.avatarUrl} alt={user.displayName ?? user.username} />
+              ) : (
+                <span>{(user.displayName?.[0] || user.email?.[0] || user.username[0] || "U").toUpperCase()}</span>
+              )}
+            </div>
+            <div className="fd-sidebar-user-info">
+              <span className="fd-sidebar-user-name">{user.displayName ?? user.username}</span>
+              <span className="fd-sidebar-user-role">{user.role}</span>
+            </div>
+          </div>
+          <button type="button" className="fd-nav-item" onClick={() => setTab("settings")}>
+            <span className="fd-nav-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+            </span>
+            <span className="fd-nav-label">Help</span>
           </button>
-          <button type="button" className="sidebar-bottom-link sidebar-bottom-link--logout" onClick={() => void onLogout()}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="8" y1="12" x2="16" y2="12"/>
-            </svg>
-            Log out
+          <button type="button" className="fd-nav-item" onClick={() => void onLogout()}>
+            <span className="fd-nav-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </span>
+            <span className="fd-nav-label">Log out</span>
           </button>
         </div>
       </aside>
 
-      {/* ── MAIN CONTENT ── */}
-      <div className="db-main">
-        {/* Content area — no persistent top bar, each tab renders its own header */}
-        <div className="db-content">
+      <div className="fd-main">
+        <DashboardHeader
+          user={user}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          primaryLabel={primaryLabel}
+          onPrimaryAction={primaryAction}
+          showSearch={tab === "products" || tab === "dashboard"}
+        />
+        <div className="fd-content">
           {tab === "dashboard" && (
-            <DashboardOverview 
-              links={links} 
-              history={history} 
-              latest={latest} 
-              darazSession={darazSession} 
+            <DashboardOverview
+              links={links}
+              history={history}
+              latest={latest}
+              darazSession={darazSession}
               onNavigate={setTab}
               user={user}
               onCreateClick={() => setShowCreateModal(true)}
+              onRunCheck={() => void checkAllLinks()}
+              checking={checking}
             />
           )}
           {tab === "products" && (
-            <ProductsPanel 
-              links={links} 
-              searchQuery={searchQuery} 
-              history={history} 
-              latest={latest} 
-              removeLink={removeLink} 
-              checking={checking} 
-              checkAllLinks={checkAllLinks} 
-              activeJob={activeJob} 
-              message={message} 
+            <ProductsPanel
+              links={links}
+              searchQuery={searchQuery}
+              history={history}
+              latest={latest}
+              removeLink={removeLink}
+              checking={checking}
+              checkAllLinks={checkAllLinks}
+              activeJob={activeJob}
+              message={message}
             />
           )}
           {tab === "session" && (
-            <SessionPanel 
-              darazSession={darazSession} 
-              credentials={credentials} 
-              captureId={captureId} 
-              browserUrl={browserUrl} 
-              startDarazLogin={startDarazLogin} 
-              saveDarazLogin={saveDarazLogin} 
-              resetDarazLogin={resetDarazLogin} 
-              stopDarazBrowser={stopDarazBrowser} 
-              checking={checking} 
-              checkAllLinks={checkAllLinks} 
-              activeJob={activeJob} 
-              message={message} 
+            <SessionPanel
+              darazSession={darazSession}
+              credentials={credentials}
+              captureId={captureId}
+              browserUrl={browserUrl}
+              startDarazLogin={startDarazLogin}
+              saveDarazLogin={saveDarazLogin}
+              resetDarazLogin={resetDarazLogin}
+              stopDarazBrowser={stopDarazBrowser}
+              checking={checking}
+              checkAllLinks={checkAllLinks}
+              activeJob={activeJob}
+              message={message}
             />
           )}
           {tab === "messages" && user.role === "admin" && <MessagesPanel />}
@@ -1690,8 +2006,9 @@ function DashboardOverview({
   latest,
   darazSession,
   onNavigate,
-  user,
-  onCreateClick
+  onCreateClick,
+  onRunCheck,
+  checking
 }: {
   links: SavedLink[];
   history: DarazCheckResult[];
@@ -1700,328 +2017,183 @@ function DashboardOverview({
   onNavigate: (tab: "dashboard" | "products" | "session" | "messages" | "admin" | "settings") => void;
   user: AppUser;
   onCreateClick: () => void;
+  onRunCheck: () => void;
+  checking: boolean;
 }) {
-  const firstName = (displayUser(user).split(" ")[0]) || "there";
-  const today = new Date().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
-
-  // Real metrics
   const checkedCount = history.filter(r => r.status === "checked").length;
   const totalRuns = history.length;
   const latestCheckout = latest?.checkoutTotal;
   const sessionActive = darazSession.status === "saved";
+  const blockedCount = history.filter(r => r.status === "blocked").length;
+  const partialCount = history.filter(r => r.status !== "checked" && r.status !== "blocked").length;
+  const verifiedPct = totalRuns > 0 ? Math.round((checkedCount / totalRuns) * 100) : 0;
+  const blockedPct = totalRuns > 0 ? Math.round((blockedCount / totalRuns) * 100) : 0;
+  const partialPct = totalRuns > 0 ? Math.round((partialCount / totalRuns) * 100) : 0;
 
-  // Build checkout price history from real runs (last 7, most-recent-first → reverse for chart)
-  const priceRuns = history.slice(0, 7).reverse();
+  const priceRuns = history.slice(0, 12).reverse();
   const chartPrices = priceRuns.map(r => (r.checkoutTotal?.minorUnits ?? 0) / 100);
-  // Fallback demo data if no runs yet
-  const chartData = chartPrices.length >= 2 ? chartPrices : [1250, 1320, 1195, 1410, 1380, 1290, 1430];
+  const chartData = chartPrices.length >= 2 ? chartPrices : [1250, 1320, 1195, 1410, 1380, 1290, 1430, 1375, 1420, 1310, 1450, 1390];
   const chartLabels = priceRuns.length >= 2
-    ? priceRuns.map(r => new Date(r.startedAt).toLocaleDateString("en-US", { day: "2-digit" }))
-    : ["01","02","03","04","05","06","07"];
+    ? priceRuns.map(r => new Date(r.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }))
+    : ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-  // SVG chart dimensions
-  const [hoveredChartPt, setHoveredChartPt] = useState<number | null>(null);
-  const chartW = 540;
-  const chartH = 160;
-  const chartPad = { top: 16, right: 8, bottom: 28, left: 40 };
-  const innerW = chartW - chartPad.left - chartPad.right;
-  const innerH = chartH - chartPad.top - chartPad.bottom;
-  const maxVal = Math.max(...chartData) * 1.2 || 1500;
-  const toX = (i: number) => chartPad.left + (i / Math.max(chartData.length - 1, 1)) * innerW;
-  const toY = (v: number) => chartPad.top + innerH - (v / maxVal) * innerH;
-  const makePath = (data: number[]) =>
-    data.map((v, i) => `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
-  const makeArea = (data: number[]) =>
-    `${makePath(data)} L${toX(data.length - 1).toFixed(1)},${(chartPad.top + innerH).toFixed(1)} L${chartPad.left.toFixed(1)},${(chartPad.top + innerH).toFixed(1)} Z`;
-
-  // Y-axis gridlines: 5 evenly spaced
-  const yTicks = Array.from({ length: 5 }, (_, i) => Math.round((maxVal / 4) * i));
-  const formatChartY = (v: number) => v >= 1000 ? `${(v/1000).toFixed(1)}k` : String(v);
+  const priceChange = chartData.length >= 2
+    ? ((chartData[chartData.length - 1] - chartData[0]) / chartData[0]) * 100
+    : 0;
+  const sparkData = chartData.slice(-6);
+  const productCompare = buildProductCompareChart(links, latest);
+  const chartFmt = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v));
 
   return (
-    <div className="ov2-layout">
-      {/* ── GREETING HEADER ── */}
-      <div className="ov2-greeting-row">
-        <div>
-          <h1 className="ov2-greeting">Hello, {firstName}</h1>
-          <p className="ov2-greeting-sub">Here's your Daraz price monitoring overview.</p>
-        </div>
-        <div className="ov2-date-pill">
-          <span className="ov2-date-text">{today}</span>
-          <button type="button" className="ov2-date-icon-btn" onClick={onCreateClick} title="Monitor a new product">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
-              <line x1="12" y1="5" x2="12" y2="19"/>
-              <line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
+    <div className="fd-dash-grid">
+      <div className="fd-dash-top">
+        <FinSummaryCard
+          title="Monitored Links"
+          value={String(links.length)}
+          badge={links.length > 0 ? "active" : undefined}
+          badgeType="up"
+          description={links.length > 0
+            ? "Products being tracked for checkout price changes."
+            : "Add a Daraz product link to start monitoring."}
+        />
+        <FinSummaryCard
+          title="Price Checks"
+          value={String(totalRuns)}
+          badge={checkedCount > 0 ? `${checkedCount} verified` : undefined}
+          badgeType="up"
+          description={`${checkedCount} successful verification${checkedCount === 1 ? "" : "s"} completed.`}
+        >
+          {sparkData.length >= 2 && <MiniSparkline data={sparkData} />}
+        </FinSummaryCard>
+        <div className="fd-cta-card">
+          <div className="fd-cta-glow" />
+          <p className="fd-cta-title">Verify checkout prices</p>
+          <p className="fd-cta-sub">Run a full Daraz checkout verification on all saved products.</p>
+          <button type="button" className="fd-cta-btn" disabled={checking || links.length === 0} onClick={onRunCheck}>
+            {checking ? "Running..." : "Run Price Check"}
           </button>
         </div>
       </div>
 
-      {/* ── REAL STAT BOXES ── */}
-      <div className="ov2-stats-row">
-        <div className="ov2-stat-item">
-          <div className="ov2-stat-icon" style={{ background: "#f0f4ff" }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-            </svg>
-          </div>
-          <div className="ov2-stat-content">
-            <span className="ov2-stat-label">Monitored Links</span>
-            <div className="ov2-stat-val-row">
-              <span className="ov2-stat-val">{links.length}</span>
-              {links.length > 0 && <span className="ov2-stat-trend ov2-trend-down">▼ active</span>}
-            </div>
-          </div>
-        </div>
-        <div className="ov2-stat-divider" />
-        <div className="ov2-stat-item">
-          <div className="ov2-stat-icon" style={{ background: "#fff8f0" }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-            </svg>
-          </div>
-          <div className="ov2-stat-content">
-            <span className="ov2-stat-label">Price Checks</span>
-            <div className="ov2-stat-val-row">
-              <span className="ov2-stat-val">{totalRuns}</span>
-              {checkedCount > 0 && <span className="ov2-stat-trend ov2-trend-down">▼ {checkedCount} verified</span>}
-            </div>
-          </div>
-        </div>
-        <div className="ov2-stat-divider" />
-        <div className="ov2-stat-item">
-          <div className="ov2-stat-icon" style={{ background: "#f0fff8" }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
-              <line x1="9" y1="9" x2="9.01" y2="9"/>
-              <line x1="15" y1="9" x2="15.01" y2="9"/>
-            </svg>
-          </div>
-          <div className="ov2-stat-content">
-            <span className="ov2-stat-label">Daraz Session</span>
-            <div className="ov2-stat-val-row">
-              <span className="ov2-stat-val" style={{ fontSize: 18, paddingTop: 4 }}>{sessionActive ? "Active" : "Offline"}</span>
-              <span className={`ov2-stat-trend ${sessionActive ? "ov2-trend-down" : "ov2-trend-up"}`}>{sessionActive ? "▼ connected" : "▲ login needed"}</span>
-            </div>
-          </div>
-        </div>
-        {latestCheckout && (
-          <>
-            <div className="ov2-stat-divider" />
-            <div className="ov2-stat-item">
-              <div className="ov2-stat-icon" style={{ background: "#fef9ee" }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
-                  <line x1="12" y1="1" x2="12" y2="23"/>
-                  <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-                </svg>
-              </div>
-              <div className="ov2-stat-content">
-                <span className="ov2-stat-label">Latest Checkout</span>
-                <div className="ov2-stat-val-row">
-                  <span className="ov2-stat-val" style={{ fontSize: 20, paddingTop: 4 }}>{formatMoney(latestCheckout)}</span>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
+      <div className="fd-dash-charts">
+        <LargeAreaChart
+          title="Checkout Price History"
+          subtitle="Verified checkout totals from recent runs"
+          headline={latestCheckout ? formatMoney(latestCheckout) : `LKR ${chartData[chartData.length - 1].toLocaleString()}`}
+          badge={priceChange !== 0 ? `${priceChange > 0 ? "+" : ""}${priceChange.toFixed(1)}%` : undefined}
+          badgeType={priceChange >= 0 ? "up" : "down"}
+          headlineNote={totalRuns > 0 ? `across ${totalRuns} run${totalRuns === 1 ? "" : "s"}` : "sample data — run a check to see real prices"}
+          data={chartData}
+          labels={chartLabels}
+          height={300}
+          formatValue={chartFmt}
+        />
+        <LargeGroupedBarChart
+          title="Product Price Comparison"
+          subtitle="Listed price vs verified checkout per product"
+          headlineNote={productCompare.isSample ? "sample data — add products to compare" : `${links.length} product${links.length === 1 ? "" : "s"}`}
+          series={productCompare.series}
+          labels={productCompare.labels}
+          height={300}
+          formatValue={chartFmt}
+        />
       </div>
 
-      {/* ── MAIN TWO-COLUMN GRID ── */}
-      <div className="ov2-main-grid">
-        {/* LEFT — Checkout Price Chart + Links Table */}
-        <div className="ov2-left-col">
-          {/* Price History Chart */}
-          <div className="ov2-section">
-            <div className="ov2-section-header">
-              <h2 className="ov2-section-title">Checkout Price History</h2>
-              <span className="ov2-tasks-done-pill">{totalRuns > 0 ? `${totalRuns} runs` : "No runs yet"}</span>
-            </div>
-            <div className="ov2-chart-wrap">
-              <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="xMidYMid meet" style={{ overflow: "visible" }}>
-                <defs>
-                  <linearGradient id="grad-blue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.15"/>
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0"/>
-                  </linearGradient>
-                </defs>
-                {/* Grid lines + Y labels */}
-                {yTicks.map(v => (
-                  <g key={v}>
-                    <line x1={chartPad.left} y1={toY(v)} x2={chartPad.left + innerW} y2={toY(v)} stroke="#f1f5f9" strokeWidth="1"/>
-                    <text x={chartPad.left - 6} y={toY(v) + 4} textAnchor="end" fontSize="10" fill="#9ca3af">{formatChartY(v)}</text>
-                  </g>
-                ))}
-                {/* Area fill */}
-                <path d={makeArea(chartData)} fill="url(#grad-blue)" />
-                {/* Line */}
-                <path d={makePath(chartData)} fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
-                {/* X labels */}
-                {chartLabels.map((lbl, i) => (
-                  <text key={i} x={toX(i)} y={chartPad.top + innerH + 18} textAnchor="middle" fontSize="10" fill="#9ca3af">{lbl}</text>
-                ))}
-                {/* Hover areas */}
-                {chartData.map((_, i) => (
-                  <rect
-                    key={i}
-                    x={toX(i) - 20}
-                    y={chartPad.top}
-                    width="40"
-                    height={innerH}
-                    fill="transparent"
-                    style={{ cursor: "pointer" }}
-                    onMouseEnter={() => setHoveredChartPt(i)}
-                    onMouseLeave={() => setHoveredChartPt(null)}
-                  />
-                ))}
-                {hoveredChartPt !== null && (
-                  <>
-                    <line x1={toX(hoveredChartPt)} y1={chartPad.top} x2={toX(hoveredChartPt)} y2={chartPad.top + innerH} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4,3"/>
-                    <circle cx={toX(hoveredChartPt)} cy={toY(chartData[hoveredChartPt])} r="5" fill="#3b82f6" stroke="white" strokeWidth="2"/>
-                    <foreignObject
-                      x={Math.min(Math.max(toX(hoveredChartPt) - 55, 0), chartW - 120)}
-                      y={Math.max(toY(chartData[hoveredChartPt]) - 70, 0)}
-                      width="120" height="60"
-                    >
-                      <div className="chart-tooltip-box">
-                        <span className="chart-tooltip-date">{chartLabels[hoveredChartPt]}</span>
-                        <div className="chart-tooltip-row">
-                          <span className="chart-tooltip-dot" style={{ background: "#3b82f6" }}/>
-                          <span className="chart-tooltip-key">Checkout</span>
-                          <span className="chart-tooltip-val">{priceRuns.length >= 2 ? formatMoney(priceRuns[hoveredChartPt]?.checkoutTotal) : `LKR ${chartData[hoveredChartPt].toLocaleString()}`}</span>
-                        </div>
-                      </div>
-                    </foreignObject>
-                  </>
-                )}
-              </svg>
-            </div>
+      <div className="fd-dash-bottom">
+        <div className="fd-panel-card">
+          <div className="fd-panel-header">
+            <h3 className="fd-panel-title">Monitored Products</h3>
+            <button type="button" className="fd-panel-action" onClick={onCreateClick}>+ Add</button>
           </div>
-
-          {/* Monitored Products Table */}
-          <div className="ov2-section">
-            <div className="ov2-section-header">
-              <h2 className="ov2-section-title">Monitored Products</h2>
-              <button type="button" className="ov2-period-select" style={{ cursor: "pointer", border: "none", background: "#1a1a1a", color: "#fff", borderRadius: "100px", padding: "6px 16px", fontSize: 13, fontWeight: 600 }} onClick={onCreateClick}>
-                + Add Product
-              </button>
+          {links.length === 0 ? (
+            <div className="fd-empty">
+              <p>No products monitored yet.</p>
+              <button type="button" className="fd-link-btn" onClick={onCreateClick}>Add your first product</button>
             </div>
-            {links.length === 0 ? (
-              <div className="ov2-empty-state">
-                <div className="ov2-empty-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="40" height="40">
-                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-                  </svg>
-                </div>
-                <p className="ov2-empty-text">No products monitored yet.</p>
-                <p className="ov2-empty-sub">Click "+ Add Product" to start tracking Daraz checkout prices.</p>
-              </div>
-            ) : (
-              <div className="ov2-links-table">
-                <div className="ov2-links-thead">
-                  <span>Product</span>
-                  <span>Listed Price</span>
-                  <span>Status</span>
-                </div>
-                {links.map(link => {
-                  const price = parseObservedPrice(link);
-                  return (
-                    <div className="ov2-links-row" key={link.id}>
-                      <div className="ov2-links-row-name">
-                        {link.imageUrl && (
-                          <div className="ov2-prod-thumb">
-                            <img src={link.imageUrl} alt={link.title} />
-                          </div>
-                        )}
-                        <div>
-                          <p className="ov2-prod-title">{link.title}</p>
-                          <a href={link.url} target="_blank" rel="noreferrer" className="ov2-prod-url">View on Daraz ↗</a>
-                        </div>
-                      </div>
-                      <span className="ov2-prod-price">{formatMoney(price)}</span>
-                      <span className={`ov2-prod-badge ${sessionActive ? "badge-active" : "badge-inactive"}`}>
-                        {sessionActive ? "Active" : "Offline"}
-                      </span>
+          ) : (
+            <div className="fd-contact-list">
+              {links.slice(0, 5).map(link => {
+                const price = parseObservedPrice(link);
+                return (
+                  <div className="fd-contact-row" key={link.id}>
+                    <div className="fd-contact-avatar">
+                      {link.imageUrl ? <img src={link.imageUrl} alt={link.title} /> : <span>📦</span>}
                     </div>
-                  );
-                })}
-              </div>
+                    <div className="fd-contact-info">
+                      <span className="fd-contact-name">{link.title}</span>
+                      <span className="fd-contact-role">{formatMoney(price)} listed</span>
+                    </div>
+                    <span className={`fd-status-pill ${sessionActive ? "fd-status-pill--ok" : "fd-status-pill--warn"}`}>
+                      {sessionActive ? "Active" : "Offline"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {links.length > 5 && (
+            <button type="button" className="fd-link-btn fd-link-btn--center" onClick={() => onNavigate("products")}>
+              View all {links.length} products
+            </button>
+          )}
+        </div>
+
+        <div className="fd-panel-card">
+          <div className="fd-panel-header">
+            <h3 className="fd-panel-title">Verification Snapshot</h3>
+            <span className="fd-chart-pill">{totalRuns} runs</span>
+          </div>
+          <div className="fd-gauge-row">
+            <RingGauge value={verifiedPct} label="Verified" sublabel="Successful checks" color="#2563eb" />
+            <RingGauge value={partialPct} label="Partial" sublabel="Needs attention" color="#60a5fa" />
+            <RingGauge value={blockedPct} label="Blocked" sublabel="Failed checks" color="#1d4ed8" />
+          </div>
+          <div className="fd-session-strip">
+            <span>Daraz Session</span>
+            <span className={`fd-status-pill ${sessionActive ? "fd-status-pill--ok" : "fd-status-pill--warn"}`}>
+              {sessionActive ? "Connected" : darazSession.status === "needs_login" ? "Login needed" : "Not set up"}
+            </span>
+            {!sessionActive && (
+              <button type="button" className="fd-link-btn" onClick={() => onNavigate("session")}>Connect →</button>
             )}
           </div>
         </div>
 
-        {/* RIGHT — Recent Checks */}
-        <div className="ov2-right-col">
-          <div className="ov2-section">
-            <div className="ov2-section-header">
-              <h2 className="ov2-section-title">Recent Checks</h2>
-              <span className="ov2-tasks-done-pill">{checkedCount} verified</span>
-            </div>
-            {history.length === 0 ? (
-              <div className="ov2-empty-state">
-                <div className="ov2-empty-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="40" height="40">
-                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                  </svg>
-                </div>
-                <p className="ov2-empty-text">No checks run yet.</p>
-                <p className="ov2-empty-sub">Go to the Tasks tab to start a price verification run.</p>
-              </div>
-            ) : (
-              <div className="ov2-tasks-list">
-                {history.slice(0, 8).map((run, idx) => {
-                  const isOk = run.status === "checked";
-                  const dateStr = new Date(run.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                  const timeStr = new Date(run.startedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-                  const iconBgs = ["#e8eaf6","#fff3e0","#e8f5e9","#fce4ec","#e0f7fa","#f3e5f5","#fff8e1","#e8f5e9"];
-                  const icons = ["📋","🔍","✅","⚠️","🛒","💰","📊","🔄"];
-                  return (
-                    <div className="ov2-task-row" key={run.runId || idx}>
-                      <div className="ov2-task-icon" style={{ background: iconBgs[idx % iconBgs.length] }}>
-                        <span style={{ fontSize: 16 }}>{icons[idx % icons.length]}</span>
-                      </div>
-                      <div className="ov2-check-info">
-                        <span className="ov2-task-title" style={{ fontSize: 13 }}>
-                          {run.products[0]?.title ? run.products[0].title.substring(0, 30) + (run.products[0].title.length > 30 ? "..." : "") : `Run #${totalRuns - idx}`}
-                        </span>
-                        <span className="ov2-check-date">{dateStr} · {timeStr}</span>
-                      </div>
-                      <div className="ov2-task-status">
-                        <span className="ov2-task-status-dot" style={{ background: isOk ? "#22c55e" : run.status === "blocked" ? "#ef4444" : "#f59e0b" }}/>
-                        <span className="ov2-task-status-text" style={{ color: isOk ? "#22c55e" : run.status === "blocked" ? "#ef4444" : "#f59e0b" }}>
-                          {isOk ? "Verified" : run.status === "blocked" ? "Blocked" : "Partial"}
-                        </span>
-                      </div>
-                      {isOk && run.checkoutTotal && (
-                        <span className="ov2-check-total">{formatMoney(run.checkoutTotal)}</span>
-                      )}
+        <div className="fd-panel-card fd-dash-recent">
+          <div className="fd-panel-header">
+            <h3 className="fd-panel-title">Recent Runs</h3>
+            <span className="fd-chart-pill">{checkedCount} verified</span>
+          </div>
+          {history.length === 0 ? (
+            <div className="fd-empty"><p>No checks run yet.</p></div>
+          ) : (
+            <div className="fd-contact-list">
+              {history.slice(0, 6).map((run, idx) => {
+                const isOk = run.status === "checked";
+                const dateStr = new Date(run.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                return (
+                  <div className="fd-contact-row" key={run.runId || idx}>
+                    <div className="fd-contact-avatar fd-contact-avatar--letter">
+                      <span>{isOk ? "✓" : "!"}</span>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Daraz session quick status */}
-          <div className="ov2-section">
-            <h2 className="ov2-section-title" style={{ marginBottom: 16 }}>Session Status</h2>
-            <div className="ov2-session-card">
-              <div className="ov2-session-row">
-                <span className="ov2-session-label">Daraz Login</span>
-                <span className={`ov2-prod-badge ${sessionActive ? "badge-active" : "badge-inactive"}`}>
-                  {sessionActive ? "Connected" : darazSession.status === "expired" ? "Expired" : "Not set up"}
-                </span>
-              </div>
-              {darazSession.message && (
-                <p className="ov2-session-msg">{darazSession.message}</p>
-              )}
-              {!sessionActive && (
-                <p className="ov2-session-hint">Go to the <strong>Tasks</strong> tab to connect your Daraz account and run price checks.</p>
-              )}
+                    <div className="fd-contact-info">
+                      <span className="fd-contact-name">
+                        {run.products[0]?.title ? run.products[0].title.substring(0, 28) + (run.products[0].title.length > 28 ? "…" : "") : `Run #${totalRuns - idx}`}
+                      </span>
+                      <span className="fd-contact-role">{dateStr}</span>
+                    </div>
+                    {isOk && run.checkoutTotal ? (
+                      <span className="fd-recent-total">{formatMoney(run.checkoutTotal)}</span>
+                    ) : (
+                      <span className={`fd-status-pill ${isOk ? "fd-status-pill--ok" : run.status === "blocked" ? "fd-status-pill--err" : "fd-status-pill--warn"}`}>
+                        {isOk ? "OK" : run.status === "blocked" ? "Blocked" : "Partial"}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
@@ -2031,6 +2203,7 @@ function DashboardOverview({
 
 /* ============================================================
    PRODUCTS TAB PANEL
+   ============================================================ */
 function ProductsPanel({
   links,
   searchQuery,
@@ -2062,17 +2235,20 @@ function ProductsPanel({
     return total + observed;
   }, 0), [filteredLinks]);
 
+  const productCompare = buildProductCompareChart(filteredLinks, latest);
+  const chartFmt = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v));
+
   return (
-    <div className="products-panel">
-      <div className="panel-header-actions">
-        <h2 className="overview-section-title">Saved Products ({filteredLinks.length})</h2>
-        <button 
-          type="button" 
-          className="db-btn-primary" 
+    <div className="fd-admin-layout">
+      <div className="fd-panel-header" style={{ marginBottom: 20 }}>
+        <h2 className="fd-panel-title" style={{ fontSize: 20 }}>Saved Products ({filteredLinks.length})</h2>
+        <button
+          type="button"
+          className="fd-header-primary-btn"
           disabled={checking || links.length === 0}
           onClick={() => void checkAllLinks()}
         >
-          {checking ? "⟳ Running check..." : "▶ Run Price Verification"}
+          {checking ? "Running..." : "Run Price Verification"}
         </button>
       </div>
 
@@ -2083,34 +2259,43 @@ function ProductsPanel({
         </div>
       )}
 
-      <div className="products-grid-layout">
-        {/* Left side: List of links */}
-        <div className="overview-card-container">
-          <h3 className="card-subtitle" style={{ marginBottom: 12 }}>Monitored Links</h3>
+      <div className="fd-dash-charts fd-dash-charts--single">
+        <LargeGroupedBarChart
+          title="Product Price Comparison"
+          subtitle="Listed price vs verified checkout"
+          headlineNote={productCompare.isSample ? "sample data" : `${filteredLinks.length} products`}
+          series={productCompare.series}
+          labels={productCompare.labels}
+          height={280}
+          formatValue={chartFmt}
+        />
+      </div>
+
+      <div className="fd-dash-bottom">
+        <div className="fd-panel-card">
+          <h3 className="fd-panel-title" style={{ marginBottom: 16 }}>Monitored Links</h3>
           {filteredLinks.length === 0 ? (
-            <div className="db-empty-state">
-              <p>{searchQuery ? "No products match your search query." : "No saved links yet. Click 'Create' in the top header to add a product URL."}</p>
+            <div className="fd-empty">
+              <p>{searchQuery ? "No products match your search." : "No saved links yet. Click Monitor Product to add a URL."}</p>
             </div>
           ) : (
-            <div className="db-links-list">
+            <div className="fd-contact-list">
               {filteredLinks.map((link) => (
-                <div className="db-link-row" key={link.id}>
-                  {link.imageUrl && (
-                    <div className="db-link-thumbnail">
-                      <img src={link.imageUrl} alt={link.title} />
-                    </div>
-                  )}
-                  <div className="db-link-info">
-                    <p className="db-link-title">{link.title}</p>
-                    <a href={link.url} target="_blank" rel="noreferrer" className="db-link-url">View on Daraz ↗</a>
+                <div className="fd-contact-row" key={link.id}>
+                  <div className="fd-contact-avatar">
+                    {link.imageUrl ? <img src={link.imageUrl} alt={link.title} /> : <span>📦</span>}
                   </div>
-                  <div className="db-link-meta">
-                    <span className="db-link-price">{formatMoney(parseObservedPrice(link))}</span>
-                    <button type="button" className="text-button remove-btn" onClick={() => void removeLink(link.id)}>Remove</button>
+                  <div className="fd-contact-info">
+                    <span className="fd-contact-name">{link.title}</span>
+                    <a href={link.url} target="_blank" rel="noreferrer" className="fd-link-btn">View on Daraz ↗</a>
                   </div>
+                  <span className="fd-recent-total">{formatMoney(parseObservedPrice(link))}</span>
+                  <button type="button" className="fd-message-delete" onClick={() => void removeLink(link.id)} title="Remove">
+                    <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                  </button>
                 </div>
               ))}
-              <div className="db-links-total">
+              <div className="fd-session-strip" style={{ marginTop: 12 }}>
                 <span>Product-page total</span>
                 <strong>{formatLkr(productPageTotal)}</strong>
               </div>
@@ -2118,20 +2303,19 @@ function ProductsPanel({
           )}
         </div>
 
-        {/* Right side: Latest Verification Results */}
-        <div className="overview-card-container">
-          <h3 className="card-subtitle" style={{ marginBottom: 12 }}>Latest Checkout Results</h3>
+        <div className="fd-panel-card">
+          <h3 className="fd-panel-title" style={{ marginBottom: 16 }}>Latest Checkout Results</h3>
           {latest ? (
             <div className="price-results-section">
-              <div className="results-summary-row" style={{ marginBottom: 12 }}>
-                <span>Latest Verified Checkout Total:</span>
-                <strong className="checkout-total-val">{formatMoney(latest.checkoutTotal)}</strong>
+              <div className="fd-chart-headline-row" style={{ marginBottom: 16 }}>
+                <span className="fd-chart-headline">{formatMoney(latest.checkoutTotal)}</span>
+                <span className="fd-chart-headline-note">verified checkout total</span>
               </div>
               <PriceTable result={latest} />
             </div>
           ) : (
-            <div className="db-empty-state">
-              <p>No verified checks completed yet. Trigger a price verification run to see final checkout totals, service fees, and taxes.</p>
+            <div className="fd-empty">
+              <p>No verified checks completed yet. Trigger a price verification run to see final checkout totals.</p>
             </div>
           )}
         </div>
@@ -2152,9 +2336,6 @@ function SessionPanel({
   saveDarazLogin,
   resetDarazLogin,
   stopDarazBrowser,
-  checking,
-  checkAllLinks,
-  activeJob,
   message
 }: {
   darazSession: DarazSession;
@@ -2170,91 +2351,99 @@ function SessionPanel({
   activeJob: PriceCheckJob | undefined;
   message: string;
 }) {
+  const isConnected = darazSession.status === "saved";
+  const isLive = Boolean(captureId && browserUrl);
+  const steps = [
+    { n: 1, title: "Start session", desc: "Launch a remote browser on the CartTruth server." },
+    { n: 2, title: "Log in to Daraz", desc: "Open the remote browser and complete login or OTP." },
+    { n: 3, title: "Save session", desc: "Return here and save cookies for automated checks." },
+    { n: 4, title: "Verify prices", desc: "Add a product and run a checkout verification." }
+  ];
+  const activeStep = isConnected ? 4 : isLive ? 3 : captureId ? 2 : 1;
+
   return (
-    <div className="session-panel">
-      <h2 className="overview-section-title" style={{ marginBottom: 16 }}>Daraz Browser Session</h2>
+    <div className="fd-page">
+      <div className="fd-page-header">
+        <div>
+          <h2 className="fd-page-title">Daraz Session</h2>
+          <p className="fd-page-sub">Connect your Daraz account for automated checkout price checks.</p>
+        </div>
+        <span className={`fd-status-pill ${isConnected ? "fd-status-pill--ok" : darazSession.status === "needs_login" ? "fd-status-pill--err" : "fd-status-pill--warn"}`}>
+          {sessionLabel(darazSession.status)}
+        </span>
+      </div>
 
-      {message && <div className="info-message-banner">{message}</div>}
-      
-      <div className="session-grid">
-        <div className="overview-card-container">
-          <div className="session-status-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <h3>Connection Status</h3>
-            <span className={`status-pill ${sessionClassName(darazSession.status)}`}>
-              {sessionLabel(darazSession.status)}
-            </span>
+      {message && <div className="fd-alert fd-alert--info">{message}</div>}
+
+      <div className="fd-session-hero">
+        <div className="fd-session-hero-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="28" height="28">
+            <rect x="3" y="5" width="18" height="14" rx="2"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+            <line x1="8" y1="3" x2="8" y2="7"/>
+            <line x1="16" y1="3" x2="16" y2="7"/>
+          </svg>
+        </div>
+        <div className="fd-session-hero-body">
+          <p className="fd-session-hero-title">{isConnected ? "Session ready" : isLive ? "Browser active — finish login" : "No active session"}</p>
+          <p className="fd-session-hero-desc">{sessionHelpText(darazSession, credentials)}</p>
+          <div className="fd-session-meta">
+            {credentials.saved && (
+              <span className="fd-meta-chip">
+                <span className="fd-meta-dot fd-meta-dot--ok" />
+                Credentials saved{credentials.username ? ` · ${credentials.username}` : ""}
+              </span>
+            )}
+            {darazSession.savedAt && (
+              <span className="fd-meta-chip">Saved {new Date(darazSession.savedAt).toLocaleDateString()}</span>
+            )}
+            {darazSession.live && <span className="fd-meta-chip"><span className="fd-meta-dot fd-meta-dot--ok" />Live browser</span>}
           </div>
+        </div>
+      </div>
 
-          <p className="session-desc" style={{ color: "#64748b", fontSize: 14, lineHeight: 1.5, marginBottom: 20 }}>
-            {sessionHelpText(darazSession, credentials)}
-          </p>
-
-          <div className="session-controls" style={{ display: "flex", gap: 12 }}>
-            {captureId && browserUrl ? (
-              <a className="db-btn-primary remote-browser-btn" href={browserUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-                Open Remote Browser Window ↗
+      <div className="fd-settings-grid">
+        <div className="fd-panel-card">
+          <h3 className="fd-panel-title">Session Controls</h3>
+          <p className="fd-card-desc">Manage your remote Daraz browser connection.</p>
+          <div className="fd-btn-group">
+            {isLive ? (
+              <a className="fd-btn fd-btn--primary" href={browserUrl} target="_blank" rel="noreferrer">
+                Open Remote Browser ↗
               </a>
             ) : (
-              <button 
-                type="button" 
-                className="db-btn-primary" 
-                disabled={Boolean(captureId)} 
-                onClick={() => void startDarazLogin()}
-                style={{ flex: 1 }}
-              >
-                {captureId ? "Browser Active" : "Start Login Session"}
+              <button type="button" className="fd-btn fd-btn--primary" disabled={Boolean(captureId)} onClick={() => void startDarazLogin()}>
+                {captureId ? "Browser Starting…" : "Start Login Session"}
               </button>
             )}
-            
-            <button 
-              type="button" 
-              className="db-btn-secondary" 
-              disabled={!captureId} 
-              onClick={() => void saveDarazLogin()}
-              style={{ flex: 1 }}
-            >
+            <button type="button" className="fd-btn fd-btn--secondary" disabled={!captureId} onClick={() => void saveDarazLogin()}>
               Save Login Session
             </button>
           </div>
-
-          <div className="session-controls" style={{ display: "flex", gap: 12, marginTop: 12 }}>
-            <button 
-              type="button" 
-              className="db-btn-light" 
-              style={{ flex: 1 }} 
-              disabled={!captureId && darazSession.status === "missing"} 
-              onClick={() => void resetDarazLogin()}
-            >
+          <div className="fd-btn-group fd-btn-group--secondary">
+            <button type="button" className="fd-btn fd-btn--ghost" disabled={!captureId && darazSession.status === "missing"} onClick={() => void resetDarazLogin()}>
               Reset Session
             </button>
-            <button 
-              type="button" 
-              className="db-btn-light" 
-              style={{ flex: 1 }} 
-              disabled={!captureId} 
-              onClick={() => void stopDarazBrowser()}
-            >
-              Stop Browser Process
+            <button type="button" className="fd-btn fd-btn--ghost" disabled={!captureId} onClick={() => void stopDarazBrowser()}>
+              Stop Browser
             </button>
           </div>
         </div>
 
-        <div className="overview-card-container">
-          <h3 style={{ marginBottom: 12 }}>Session Verification Instructions</h3>
-          <ul className="verification-steps-list" style={{ paddingLeft: 20, margin: 0, color: "#475569", fontSize: 14, lineHeight: 1.6 }}>
-            <li style={{ marginBottom: 8 }}>
-              <strong>1. Start the Session:</strong> Click "Start Login Session". This spins up an automated remote browser instance on the CartTruth server.
-            </li>
-            <li style={{ marginBottom: 8 }}>
-              <strong>2. Log In:</strong> Click "Open Remote Browser Window". This opens a secure VNC interface displaying the remote browser. Navigate to Daraz, enter your credentials, and complete any required captchas or OTP challenges.
-            </li>
-            <li style={{ marginBottom: 8 }}>
-              <strong>3. Save Cookies:</strong> Return to this page and click "Save Login Session". CartTruth will secure the browser cookies for subsequent automated checks.
-            </li>
-            <li>
-              <strong>4. Test Run:</strong> Add a product link and click "Run Price Verification" to test.
-            </li>
-          </ul>
+        <div className="fd-panel-card">
+          <h3 className="fd-panel-title">Setup Guide</h3>
+          <p className="fd-card-desc">Follow these steps to connect Daraz.</p>
+          <div className="fd-step-list">
+            {steps.map(step => (
+              <div key={step.n} className={`fd-step-item${activeStep >= step.n ? " fd-step-item--done" : ""}${activeStep === step.n ? " fd-step-item--active" : ""}`}>
+                <span className="fd-step-num">{step.n}</span>
+                <div className="fd-step-content">
+                  <span className="fd-step-title">{step.title}</span>
+                  <span className="fd-step-desc">{step.desc}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -2314,77 +2503,96 @@ function AdminPanel() {
   const failCount = byStatus.find(s => s.key === "failure")?.count ?? 0;
   const blockedCount = byStatus.find(s => s.key === "blocked")?.count ?? 0;
 
-  // Build a simple events-over-time mock from recent 12 events (grouped by hour)
-  const eventsOverTime = proxyEvents.slice(0, 7).map(e => e.elapsedMs ?? 500).reverse();
-  const eventsLabels = proxyEvents.slice(0, 7).map((_, i) => `E${i + 1}`).reverse();
+  const disabledUsers = users.filter(u => u.disabled).length;
+  const adminUsers = users.filter(u => u.role === "admin").length;
+
+  const recentEvents = proxyEvents.slice(0, 8).reverse();
+  const eventLabels = recentEvents.map((e, i) => {
+    const d = new Date(e.createdAt);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  });
+  const successData = recentEvents.map(e => e.status === "success" ? 1 : 0);
+  const failData = recentEvents.map(e => e.status === "failure" ? 1 : 0);
+  const blockedData = recentEvents.map(e => e.status === "blocked" ? 1 : 0);
+  const hasEventData = recentEvents.length >= 2;
+
+  const responseTimes = recentEvents.map(e => e.elapsedMs ?? 0);
+  const avgResponse = responseTimes.length > 0
+    ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+    : 0;
 
   return (
-    <>
-      {/* STAT CARDS */}
-      <div className="db-stat-cards">
-        <StatCard
-          label="Total Users"
-          value={String(users.length)}
-          delta={users.length > 0 ? 12 : undefined}
-          deltaLabel="than last month"
-          icon={<svg viewBox="0 0 20 20" fill="white" width="18" height="18"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" /></svg>}
-          iconBg="#3b82f6"
-        />
-        <StatCard
-          label="Active Users"
-          value={String(activeUsers)}
-          delta={3}
-          deltaLabel="than last week"
-          icon={<svg viewBox="0 0 20 20" fill="white" width="18" height="18"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg>}
-          iconBg="#10b981"
-        />
-        <StatCard
-          label="Total Proxy Events"
-          value={String(totalEvents)}
-          delta={totalEvents > 0 ? 5 : undefined}
-          deltaLabel="than yesterday"
-          icon={<svg viewBox="0 0 20 20" fill="white" width="18" height="18"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>}
-          iconBg="#f59e0b"
-        />
-        <StatCard
-          label="Proxy Status"
-          value={proxySummary?.proxy.enabled ? "Active" : "Inactive"}
-          icon={<svg viewBox="0 0 20 20" fill="white" width="18" height="18"><path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>}
-          iconBg="#8b5cf6"
-        />
+    <div className="fd-admin-layout">
+      <div className="fd-admin-stats">
+        <StatCard label="Total Users" value={String(users.length)} note={`${activeUsers} active, ${disabledUsers} disabled`} />
+        <StatCard label="Active Users" value={String(activeUsers)} note={`${adminUsers} admin${adminUsers === 1 ? "" : "s"}`} />
+        <StatCard label="Proxy Events" value={String(totalEvents)} note={`${successCount} success, ${failCount} failure`} />
+        <StatCard label="Proxy Status" value={proxySummary?.proxy.enabled ? "Active" : "Inactive"} note={proxySummary?.proxy.country ?? "not configured"} />
       </div>
 
-      {/* CHARTS ROW */}
-      <div className="db-charts-row">
-        <DonutChart
-          segments={[
-            { value: successCount, color: "#10b981", name: "Success" },
-            { value: failCount, color: "#ef4444", name: "Failure" },
-            { value: blockedCount, color: "#f59e0b", name: "Blocked" }
-          ]}
-          label="Proxy Events by Status"
-          sublabel="Last 12 events"
-        />
-        <MiniLineChart
-          data={eventsOverTime.length > 1 ? eventsOverTime : [120, 340, 200, 480, 300, 520, 410]}
-          color="#3b82f6"
-          label="Response Times"
-          sublabel="Elapsed ms per event"
-        />
-        <MiniBarChart
-          data={[users.filter(u => !u.disabled).length, users.filter(u => u.disabled).length, users.filter(u => u.role === "admin").length]}
-          labels={["Active", "Disabled", "Admin"]}
-          color="#8b5cf6"
-          label="User Breakdown"
-          sublabel="By status / role"
-        />
+      <div className="fd-admin-charts">
+        <div className="fd-admin-chart-main">
+          {hasEventData ? (
+            <LargeStackedBarChart
+              title="Proxy Event Activity"
+              subtitle="Recent events by outcome"
+              series={[
+                { name: "Success", color: "#2563eb", data: successData },
+                { name: "Failure", color: "#60a5fa", data: failData },
+                { name: "Blocked", color: "#93c5fd", data: blockedData }
+              ]}
+              labels={eventLabels.length > 0 ? eventLabels : ["—"]}
+              height={320}
+            />
+          ) : (
+            <LargeAreaChart
+              title="Proxy Response Times"
+              subtitle="Elapsed milliseconds per recent event"
+              headline={avgResponse > 0 ? `${avgResponse}ms` : "No data"}
+              headlineNote="average response time"
+              data={responseTimes.length >= 2 ? responseTimes : [120, 340, 200, 480, 300, 520, 410, 380]}
+              labels={eventLabels.length >= 2 ? eventLabels : ["E1","E2","E3","E4","E5","E6","E7","E8"]}
+              height={320}
+            />
+          )}
+        </div>
+        <div className="fd-admin-chart-side">
+          <LargeDonutChart
+            title="Events by Status"
+            subtitle="All recorded proxy events"
+            segments={[
+              { value: successCount, color: "#2563eb", name: "Success" },
+              { value: failCount, color: "#60a5fa", name: "Failure" },
+              { value: blockedCount, color: "#93c5fd", name: "Blocked" }
+            ]}
+            size={160}
+          />
+          <div className="fd-panel-card" style={{ marginTop: 16 }}>
+            <div className="fd-panel-header">
+              <h3 className="fd-panel-title">User Breakdown</h3>
+            </div>
+            <div className="fd-gauge-row fd-gauge-row--compact">
+              <RingGauge
+                value={users.length > 0 ? Math.round((activeUsers / users.length) * 100) : 0}
+                label="Active" sublabel={`${activeUsers} users`} color="#2563eb" size={72}
+              />
+              <RingGauge
+                value={users.length > 0 ? Math.round((disabledUsers / users.length) * 100) : 0}
+                label="Disabled" sublabel={`${disabledUsers} users`} color="#60a5fa" size={72}
+              />
+              <RingGauge
+                value={users.length > 0 ? Math.round((adminUsers / users.length) * 100) : 0}
+                label="Admin" sublabel={`${adminUsers} users`} color="#1d4ed8" size={72}
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* USERS TABLE */}
-      <div className="db-card" style={{ marginTop: 24 }}>
-        <div className="db-card-header">
-          <h2 className="db-card-title">Users</h2>
-          <span className="db-badge db-badge--blue">{users.length} total</span>
+      <div className="fd-panel-card fd-panel-card--full">
+        <div className="fd-panel-header">
+          <h3 className="fd-panel-title">Users</h3>
+          <span className="fd-chart-pill">{users.length} total</span>
         </div>
         <div className="table-wrap">
           <table>
@@ -2418,12 +2626,11 @@ function AdminPanel() {
         </div>
       </div>
 
-      {/* PROXY PANEL */}
-      <div className="db-two-col" style={{ marginTop: 20 }}>
-        <div className="db-card">
-          <div className="db-card-header">
-            <h2 className="db-card-title">Proxy Operations</h2>
-            <span className={`status ${proxySummary?.proxy.enabled ? "checked" : "needs_attention"}`}>
+      <div className="fd-dash-bottom">
+        <div className="fd-panel-card">
+          <div className="fd-panel-header">
+            <h3 className="fd-panel-title">Proxy Operations</h3>
+            <span className={`fd-status-pill ${proxySummary?.proxy.enabled ? "fd-status-pill--ok" : "fd-status-pill--warn"}`}>
               {proxySummary?.proxy.enabled ? "Configured" : "Setup required"}
             </span>
           </div>
@@ -2439,17 +2646,17 @@ function AdminPanel() {
             <Metric label="API key events" value={String(proxySummary?.events.apiKeyEvents ?? 0)} />
             <Metric label="External API" value={proxySummary?.external.apiConfigured ? "configured" : "not configured"} />
           </div>
-          <button type="button" className="light-button" disabled={testingProxy} onClick={() => void testProxy()}>
-            {testingProxy ? "Testing..." : "Run proxy test"}
+          <button type="button" className="fd-header-primary-btn" style={{ marginTop: 12 }} disabled={testingProxy} onClick={() => void testProxy()}>
+            {testingProxy ? "Testing..." : "Run Proxy Test"}
           </button>
           {proxyTest && <p className="message">Last test: {proxyTest.ok ? "✓ OK" : "✗ Failed"} ({proxyTest.status}) in {proxyTest.elapsedMs}ms</p>}
           <p className="message">{proxySummary?.external.note}</p>
         </div>
 
-        <div className="db-card">
-          <div className="db-card-header">
-            <h2 className="db-card-title">Recent Proxy Events</h2>
-            <button type="button" className="text-button" onClick={() => void refresh()}>Refresh</button>
+        <div className="fd-panel-card">
+          <div className="fd-panel-header">
+            <h3 className="fd-panel-title">Recent Proxy Events</h3>
+            <button type="button" className="fd-link-btn" onClick={() => void refresh()}>Refresh</button>
           </div>
           {message && <p className="message">{message}</p>}
           <div className="event-summary" style={{ marginBottom: 12 }}>
@@ -2483,7 +2690,7 @@ function AdminPanel() {
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -2514,64 +2721,86 @@ function MessagesPanel() {
     setTimeout(() => setDeleteMsg(""), 2500);
   }
 
+  const thisMonth = messages.filter(m => {
+    const d = new Date(m.createdAt);
+    const now = new Date();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }).length;
+
+  const messagesByMonth = useMemo(() => {
+    const counts: Record<string, number> = {};
+    messages.forEach(m => {
+      const key = new Date(m.createdAt).toLocaleDateString("en-US", { month: "short" });
+      counts[key] = (counts[key] ?? 0) + 1;
+    });
+    const entries = Object.entries(counts).slice(-8);
+    return {
+      labels: entries.map(([k]) => k),
+      data: entries.map(([, v]) => v)
+    };
+  }, [messages]);
+
   return (
-    <>
-      {/* STAT CARDS */}
-      <div className="db-stat-cards">
-        <StatCard
-          label="Total Messages"
-          value={String(messages.length)}
-          icon={<svg viewBox="0 0 20 20" fill="white" width="18" height="18"><path fillRule="evenodd" d="M2.94 6.412A2 2 0 002 8.108V16a2 2 0 002 2h12a2 2 0 002-2V8.108a2 2 0 00-.94-1.696l-6-3.75a2 2 0 00-2.12 0l-6 3.75zm2.615 2.423a1 1 0 10-1.11 1.664l5 3.333a1 1 0 001.11 0l5-3.333a1 1 0 00-1.11-1.664L10 11.798 5.555 8.835z" clipRule="evenodd" /></svg>}
-          iconBg="#3b82f6"
-        />
-        <StatCard
-          label="Unread"
-          value={String(messages.length)}
-          icon={<svg viewBox="0 0 20 20" fill="white" width="18" height="18"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>}
-          iconBg="#8b5cf6"
-        />
+    <div className="fd-admin-layout">
+      <div className="fd-admin-stats">
+        <StatCard label="Total Messages" value={String(messages.length)} note="All contact form submissions" />
+        <StatCard label="This Month" value={String(thisMonth)} note={`${messages.length - thisMonth} from earlier`} />
       </div>
 
-      {/* MESSAGES TABLE */}
-      <div className="db-card" style={{ marginTop: 24 }}>
-        <div className="db-card-header">
-          <h2 className="db-card-title">Contact Messages</h2>
-          <button type="button" className="text-button" onClick={() => void refresh()}>Refresh</button>
+      {messagesByMonth.labels.length >= 2 && (
+        <div className="fd-admin-chart-main" style={{ marginBottom: 24 }}>
+          <LargeAreaChart
+            title="Message Volume"
+            subtitle="Contact form submissions over time"
+            headline={String(messages.length)}
+            headlineNote="total messages received"
+            data={messagesByMonth.data}
+            labels={messagesByMonth.labels}
+            height={280}
+          />
+        </div>
+      )}
+
+      <div className="fd-panel-card fd-panel-card--full">
+        <div className="fd-panel-header">
+          <h3 className="fd-panel-title">Contact Messages</h3>
+          <button type="button" className="fd-link-btn" onClick={() => void refresh()}>Refresh</button>
         </div>
         {deleteMsg && <p className="message">{deleteMsg}</p>}
         {loading ? (
           <p style={{ color: "#94a3b8", padding: "24px 0", fontStyle: "italic" }}>Loading messages...</p>
         ) : messages.length === 0 ? (
-          <div className="msg-empty">
-            <div className="msg-empty-icon">📭</div>
+          <div className="fd-empty">
             <p>No messages yet. They'll appear here when visitors submit the contact form.</p>
           </div>
         ) : (
-          <div className="msg-list">
+          <div className="fd-contact-list fd-contact-list--messages">
             {messages.map((msg) => (
-              <div key={msg.id} className="msg-card">
-                <div className="msg-card-header">
-                  <div className="msg-card-meta">
-                    <span className="msg-card-subject">{msg.subject}</span>
-                    <span className="msg-card-date">{new Date(msg.createdAt).toLocaleString()}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="msg-delete-btn"
-                    onClick={() => void deleteMessage(msg.id)}
-                    title="Delete message"
-                  >
-                    <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                    Delete
-                  </button>
+              <div key={msg.id} className="fd-message-row">
+                <div className="fd-contact-avatar fd-contact-avatar--letter">
+                  <span>{msg.subject[0]?.toUpperCase() ?? "M"}</span>
                 </div>
-                <div className="msg-card-content">{msg.content}</div>
+                <div className="fd-message-body">
+                  <div className="fd-message-top">
+                    <span className="fd-contact-name">{msg.subject}</span>
+                    <span className="fd-recent-date">{new Date(msg.createdAt).toLocaleString()}</span>
+                  </div>
+                  <p className="fd-message-content">{msg.content}</p>
+                </div>
+                <button
+                  type="button"
+                  className="fd-message-delete"
+                  onClick={() => void deleteMessage(msg.id)}
+                  title="Delete message"
+                >
+                  <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                </button>
               </div>
             ))}
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -2649,94 +2878,135 @@ function SettingsPanel() {
   }
 
   return (
-    <section className="settings-grid">
-      <section className="price-section">
-        <div className="section-title">
-          <h2>Auto Price Checking</h2>
-          <span className={`status ${settings?.autoPriceCheckEnabled ? "checked" : "blocked"}`}>
-            {settings?.autoPriceCheckEnabled ? "on" : "off"}
-          </span>
+    <div className="fd-page">
+      <div className="fd-page-header">
+        <div>
+          <h2 className="fd-page-title">Settings</h2>
+          <p className="fd-page-sub">Configure price checks, credentials, proxy, and API access.</p>
         </div>
-        <form className="settings-form" onSubmit={(event) => void saveSettings(event)}>
-          <label className="checkbox-row">
-            <input type="checkbox" checked={autoEnabled} onChange={(event) => setAutoEnabled(event.target.checked)} />
-            <span>Run automatic final-price checks</span>
-          </label>
-          <label>
-            Check interval in hours
-            <input type="number" min={1} max={24} value={intervalHours} onChange={(event) => setIntervalHours(Number(event.target.value))} />
-          </label>
-          <button type="submit">Save settings</button>
-        </form>
-        <div className="settings-meta">
-          <p>Next run: {settings?.autoPriceCheckEnabled && settings.autoPriceCheckNextRunAt ? new Date(settings.autoPriceCheckNextRunAt).toLocaleString() : "Not scheduled"}</p>
-          <p>Last auto check: {settings?.autoPriceCheckLastRunAt ? `${new Date(settings.autoPriceCheckLastRunAt).toLocaleString()} (${settings.autoPriceCheckLastStatus ?? "unknown"})` : "None yet"}</p>
-          {settings?.autoPriceCheckLastMessage && <p>{settings.autoPriceCheckLastMessage}</p>}
-        </div>
-      </section>
+      </div>
 
-      <section className="price-section">
-        <div className="section-title">
-          <h2>Daraz Credentials</h2>
-          <span className={`status ${credentials.saved ? "checked" : "needs_attention"}`}>{credentials.saved ? "saved" : "missing"}</span>
-        </div>
-        <form className="settings-form" onSubmit={(event) => void saveDarazCredentials(event)}>
-          <input value={darazUsername} onChange={(event) => setDarazUsername(event.target.value)} placeholder="Daraz email or phone" autoComplete="username" />
-          <input value={darazPassword} onChange={(event) => setDarazPassword(event.target.value)} placeholder={credentials.saved ? "New Daraz password" : "Daraz password"} type="password" autoComplete="current-password" />
-          <button type="submit">Save encrypted</button>
-        </form>
-        {credentials.saved && (
-          <p className="message">
-            Saved for {credentials.username}. <button type="button" className="text-button" onClick={() => void deleteDarazCredentials()}>Remove</button>
-          </p>
-        )}
-        {message && <p className="message">{message}</p>}
-      </section>
+      {message && <div className="fd-alert fd-alert--success">{message}</div>}
 
-      <section className="price-section">
-        <div className="section-title">
-          <h2>TorchProxies Network</h2>
-          <span className={`status ${proxyStatus?.enabled ? "checked" : "needs_attention"}`}>
-            {proxyStatus?.enabled ? "TorchProxies configured" : "setup required"}
-          </span>
+      <div className="fd-settings-grid">
+        <div className="fd-panel-card">
+          <div className="fd-card-header">
+            <div>
+              <h3 className="fd-panel-title">Auto Price Checking</h3>
+              <p className="fd-card-desc">Schedule automatic checkout verifications.</p>
+            </div>
+            <span className={`fd-status-pill ${settings?.autoPriceCheckEnabled ? "fd-status-pill--ok" : "fd-status-pill--warn"}`}>
+              {settings?.autoPriceCheckEnabled ? "On" : "Off"}
+            </span>
+          </div>
+          <form className="fd-form" onSubmit={(event) => void saveSettings(event)}>
+            <label className="fd-toggle-row">
+              <input type="checkbox" checked={autoEnabled} onChange={(event) => setAutoEnabled(event.target.checked)} />
+              <span className="fd-toggle-track" />
+              <span className="fd-toggle-label">Run automatic final-price checks</span>
+            </label>
+            <label className="fd-form-field">
+              <span className="fd-form-label">Check interval (hours)</span>
+              <input className="fd-form-input" type="number" min={1} max={24} value={intervalHours} onChange={(event) => setIntervalHours(Number(event.target.value))} />
+            </label>
+            <button type="submit" className="fd-btn fd-btn--primary">Save settings</button>
+          </form>
+          <div className="fd-detail-list">
+            <div className="fd-detail-row">
+              <span>Next run</span>
+              <strong>{settings?.autoPriceCheckEnabled && settings.autoPriceCheckNextRunAt ? new Date(settings.autoPriceCheckNextRunAt).toLocaleString() : "Not scheduled"}</strong>
+            </div>
+            <div className="fd-detail-row">
+              <span>Last check</span>
+              <strong>{settings?.autoPriceCheckLastRunAt ? new Date(settings.autoPriceCheckLastRunAt).toLocaleString() : "None yet"}</strong>
+            </div>
+            {settings?.autoPriceCheckLastMessage && (
+              <div className="fd-detail-row">
+                <span>Status</span>
+                <strong>{settings.autoPriceCheckLastMessage}</strong>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="proxy-facts">
-          <p><span>Active profile</span><strong>{proxyStatus?.id ?? "none"}</strong></p>
-          <p><span>Pool</span><strong>{proxyStatus?.poolType ?? "unknown"}</strong></p>
-          <p><span>Active country</span><strong>{proxyStatus?.country ?? "unknown"}</strong></p>
-          <p><span>Endpoint</span><strong>{proxyStatus?.masked ?? "none"}</strong></p>
-        </div>
-        <form className="settings-form proxy-preview-form" onSubmit={(event) => void saveSettings(event)}>
-          <label>
-            Requested country
-            <select value={proxyCountry} onChange={(event) => setProxyCountry(event.target.value)}>
-              {countryOptions.map((country) => (
-                <option key={country} value={country}>{countryLabel(country)}</option>
-              ))}
-            </select>
-          </label>
-          <label className="checkbox-row">
-            <input type="checkbox" checked={stickyPreview} onChange={(event) => setStickyPreview(event.target.checked)} />
-            <span>Sticky checkout session</span>
-          </label>
-          <label className="checkbox-row">
-            <input type="checkbox" checked={rotatePreview} onChange={(event) => setRotatePreview(event.target.checked)} />
-            <span>Rotate proxy before next check</span>
-          </label>
-          <label className="checkbox-row">
-            <input type="checkbox" checked={fallbackPreview} onChange={(event) => setFallbackPreview(event.target.checked)} />
-            <span>Auto fallback country</span>
-          </label>
-          <button type="submit">Save network preference</button>
-        </form>
-        <div className="settings-meta">
-          <p>MVP preview: requested country is saved but not applied to live routing yet.</p>
-          <p>Powered by configured TorchProxies profile when proxy status is enabled.</p>
-        </div>
-      </section>
 
-      <ApiKeysPanel />
-    </section>
+        <div className="fd-panel-card">
+          <div className="fd-card-header">
+            <div>
+              <h3 className="fd-panel-title">Daraz Credentials</h3>
+              <p className="fd-card-desc">Encrypted login for best-effort auto-reconnect.</p>
+            </div>
+            <span className={`fd-status-pill ${credentials.saved ? "fd-status-pill--ok" : "fd-status-pill--warn"}`}>
+              {credentials.saved ? "Saved" : "Missing"}
+            </span>
+          </div>
+          <form className="fd-form" onSubmit={(event) => void saveDarazCredentials(event)}>
+            <label className="fd-form-field">
+              <span className="fd-form-label">Email or phone</span>
+              <input className="fd-form-input" value={darazUsername} onChange={(event) => setDarazUsername(event.target.value)} placeholder="Daraz email or phone" autoComplete="username" />
+            </label>
+            <label className="fd-form-field">
+              <span className="fd-form-label">Password</span>
+              <input className="fd-form-input" value={darazPassword} onChange={(event) => setDarazPassword(event.target.value)} placeholder={credentials.saved ? "New password to update" : "Daraz password"} type="password" autoComplete="current-password" />
+            </label>
+            <div className="fd-btn-group">
+              <button type="submit" className="fd-btn fd-btn--primary">Save encrypted</button>
+              {credentials.saved && (
+                <button type="button" className="fd-btn fd-btn--ghost" onClick={() => void deleteDarazCredentials()}>Remove</button>
+              )}
+            </div>
+          </form>
+        </div>
+
+        <div className="fd-panel-card fd-panel-card--wide">
+          <div className="fd-card-header">
+            <div>
+              <h3 className="fd-panel-title">TorchProxies Network</h3>
+              <p className="fd-card-desc">Proxy routing for checkout price checks.</p>
+            </div>
+            <span className={`fd-status-pill ${proxyStatus?.enabled ? "fd-status-pill--ok" : "fd-status-pill--warn"}`}>
+              {proxyStatus?.enabled ? "Configured" : "Setup required"}
+            </span>
+          </div>
+          <div className="fd-detail-list fd-detail-list--grid">
+            <div className="fd-detail-row"><span>Profile</span><strong>{proxyStatus?.id ?? "none"}</strong></div>
+            <div className="fd-detail-row"><span>Pool</span><strong>{proxyStatus?.poolType ?? "unknown"}</strong></div>
+            <div className="fd-detail-row"><span>Country</span><strong>{proxyStatus?.country ?? "unknown"}</strong></div>
+            <div className="fd-detail-row"><span>Endpoint</span><strong>{proxyStatus?.masked ?? "none"}</strong></div>
+          </div>
+          <form className="fd-form" onSubmit={(event) => void saveSettings(event)}>
+            <label className="fd-form-field">
+              <span className="fd-form-label">Requested country</span>
+              <select className="fd-form-input fd-form-select" value={proxyCountry} onChange={(event) => setProxyCountry(event.target.value)}>
+                {countryOptions.map((country) => (
+                  <option key={country} value={country}>{countryLabel(country)}</option>
+                ))}
+              </select>
+            </label>
+            <div className="fd-toggle-stack">
+              <label className="fd-toggle-row">
+                <input type="checkbox" checked={stickyPreview} onChange={(event) => setStickyPreview(event.target.checked)} />
+                <span className="fd-toggle-track" />
+                <span className="fd-toggle-label">Sticky checkout session</span>
+              </label>
+              <label className="fd-toggle-row">
+                <input type="checkbox" checked={rotatePreview} onChange={(event) => setRotatePreview(event.target.checked)} />
+                <span className="fd-toggle-track" />
+                <span className="fd-toggle-label">Rotate proxy before next check</span>
+              </label>
+              <label className="fd-toggle-row">
+                <input type="checkbox" checked={fallbackPreview} onChange={(event) => setFallbackPreview(event.target.checked)} />
+                <span className="fd-toggle-track" />
+                <span className="fd-toggle-label">Auto fallback country</span>
+              </label>
+            </div>
+            <button type="submit" className="fd-btn fd-btn--primary">Save network preference</button>
+          </form>
+          <p className="fd-form-hint">Requested country is saved as a preference. Live routing uses the configured TorchProxies profile.</p>
+        </div>
+
+        <ApiKeysPanel />
+      </div>
+    </div>
   );
 }
 
@@ -2792,33 +3062,43 @@ function ApiKeysPanel() {
   }
 
   return (
-    <section className="price-section api-key-panel">
-      <div className="section-title">
-        <h2>API Keys</h2>
-        <span className="status checked">{apiKeys.length}</span>
+    <div className="fd-panel-card fd-panel-card--wide">
+      <div className="fd-card-header">
+        <div>
+          <h3 className="fd-panel-title">API Keys</h3>
+          <p className="fd-card-desc">Programmatic access via REST and MCP.</p>
+        </div>
+        <span className="fd-chart-pill">{apiKeys.length} key{apiKeys.length === 1 ? "" : "s"}</span>
       </div>
-      <form className="settings-form" onSubmit={(event) => void createApiKey(event)}>
-        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Key name" />
-        <div className="scope-row">
-          <label className="checkbox-row">
+      <form className="fd-form fd-form--inline" onSubmit={(event) => void createApiKey(event)}>
+        <label className="fd-form-field">
+          <span className="fd-form-label">Key name</span>
+          <input className="fd-form-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Automation key" />
+        </label>
+        <div className="fd-scope-row">
+          <label className="fd-toggle-row fd-toggle-row--compact">
             <input type="checkbox" checked={restEnabled} onChange={(event) => setRestEnabled(event.target.checked)} />
-            <span>REST</span>
+            <span className="fd-toggle-track" />
+            <span className="fd-toggle-label">REST</span>
           </label>
-          <label className="checkbox-row">
+          <label className="fd-toggle-row fd-toggle-row--compact">
             <input type="checkbox" checked={mcpEnabled} onChange={(event) => setMcpEnabled(event.target.checked)} />
-            <span>MCP</span>
+            <span className="fd-toggle-track" />
+            <span className="fd-toggle-label">MCP</span>
           </label>
         </div>
-        <button type="submit">Create key</button>
+        <button type="submit" className="fd-btn fd-btn--primary">Create key</button>
       </form>
       {newToken && (
-        <div className="token-box">
-          <span>{newToken}</span>
-          <button type="button" className="light-button" onClick={() => void copyNewToken()}>Copy</button>
+        <div className="fd-token-box">
+          <code className="fd-token-text">{newToken}</code>
+          <button type="button" className="fd-btn fd-btn--secondary" onClick={() => void copyNewToken()}>Copy</button>
         </div>
       )}
-      <div className="api-key-list">
-        {apiKeys.length === 0 ? <p className="empty">No API keys yet.</p> : apiKeys.map((apiKey) => (
+      <div className="fd-api-key-list">
+        {apiKeys.length === 0 ? (
+          <div className="fd-empty"><p>No API keys yet.</p></div>
+        ) : apiKeys.map((apiKey) => (
           <ApiKeyRow
             key={apiKey.id}
             apiKey={apiKey}
@@ -2827,8 +3107,8 @@ function ApiKeysPanel() {
           />
         ))}
       </div>
-      {message && <p className="message">{message}</p>}
-    </section>
+      {message && <div className="fd-alert fd-alert--info">{message}</div>}
+    </div>
   );
 }
 
@@ -2849,28 +3129,30 @@ function ApiKeyRow({ apiKey, onSave, onDelete }: {
   }, [apiKey]);
 
   return (
-    <div className="api-key-row">
-      <div>
-        <input value={name} onChange={(event) => setName(event.target.value)} aria-label="API key name" />
-        <p>
-          <span>{apiKey.tokenPrefix}...</span>
+    <div className="fd-api-key-item">
+      <div className="fd-api-key-main">
+        <input className="fd-form-input" value={name} onChange={(event) => setName(event.target.value)} aria-label="API key name" />
+        <div className="fd-api-key-meta">
+          <span className="fd-meta-chip">{apiKey.tokenPrefix}…</span>
           <span>Created {new Date(apiKey.createdAt).toLocaleDateString()}</span>
           <span>Last used {apiKey.lastUsedAt ? new Date(apiKey.lastUsedAt).toLocaleString() : "never"}</span>
-        </p>
+        </div>
       </div>
-      <div className="scope-row">
-        <label className="checkbox-row">
+      <div className="fd-scope-row">
+        <label className="fd-toggle-row fd-toggle-row--compact">
           <input type="checkbox" checked={restEnabled} onChange={(event) => setRestEnabled(event.target.checked)} />
-          <span>REST</span>
+          <span className="fd-toggle-track" />
+          <span className="fd-toggle-label">REST</span>
         </label>
-        <label className="checkbox-row">
+        <label className="fd-toggle-row fd-toggle-row--compact">
           <input type="checkbox" checked={mcpEnabled} onChange={(event) => setMcpEnabled(event.target.checked)} />
-          <span>MCP</span>
+          <span className="fd-toggle-track" />
+          <span className="fd-toggle-label">MCP</span>
         </label>
       </div>
-      <div className="api-key-actions">
-        <button type="button" className="light-button" disabled={!name.trim() || scopes.length === 0} onClick={() => onSave({ name: name.trim(), scopes })}>Save</button>
-        <button type="button" className="text-button" onClick={onDelete}>Delete</button>
+      <div className="fd-btn-group fd-btn-group--compact">
+        <button type="button" className="fd-btn fd-btn--secondary" disabled={!name.trim() || scopes.length === 0} onClick={() => onSave({ name: name.trim(), scopes })}>Save</button>
+        <button type="button" className="fd-btn fd-btn--ghost" onClick={onDelete}>Delete</button>
       </div>
     </div>
   );

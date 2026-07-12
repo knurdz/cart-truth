@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -37,6 +36,7 @@ import {
   type DarazSessionMetadata
 } from "@carttruth/adapters";
 import { createGoogleOAuthClientFromEnv, decryptSecret, googleAdminEmails, roleForGoogleEmail, type GoogleOAuthClient } from "./auth.js";
+import { loadProjectEnv } from "./env.js";
 import {
   AppStore,
   savedLinkToProduct,
@@ -110,7 +110,7 @@ export class LocalRuntime {
     this.evidenceStore = new LocalEvidenceStore(this.runsDir);
     this.store = options.store ?? new AppStore(options.sqlitePath);
     this.logger = options.logger ?? createLogger({ base: { service: "carttruth-web" } });
-    this.proxyProfile = options.proxyProfile ?? loadProxyProfileFromEnv(loadRuntimeEnv());
+    this.proxyProfile = options.proxyProfile ?? loadProxyProfileFromEnv(loadProjectEnv());
     this.sessionCapture = options.sessionCapture ?? createDarazSessionCaptureManager(this.proxyProfile, this.logger);
     this.darazCheckHeadless = resolveDarazCheckHeadless(process.env, mode);
     this.priceCheckConcurrency = clampInteger(Number(process.env.CARTTRUTH_PRICE_CHECK_CONCURRENCY ?? 1), 1, 4, 1);
@@ -1243,37 +1243,3 @@ async function locatorExists(locator: ReturnType<Page["locator"]>): Promise<bool
   return await locator.first().waitFor({ state: "visible", timeout: 5000 }).then(() => true).catch(() => false);
 }
 
-function loadRuntimeEnv(): Record<string, string | undefined> {
-  return {
-    ...readDotEnvFile(resolve(".env.local")),
-    ...process.env
-  };
-}
-
-function readDotEnvFile(path: string): Record<string, string> {
-  if (!existsSync(path)) {
-    return {};
-  }
-
-  const values: Record<string, string> = {};
-  for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-    if (!match?.[1]) {
-      continue;
-    }
-    values[match[1]] = unquoteEnvValue(match[2] ?? "");
-  }
-  return values;
-}
-
-function unquoteEnvValue(value: string): string {
-  const trimmed = value.trim();
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
