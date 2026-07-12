@@ -140,6 +140,19 @@ export interface ContactMessage {
   createdAt: string;
 }
 
+export type NotificationKind = "success" | "error" | "warning" | "info";
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  readAt?: string;
+  createdAt: string;
+  relatedJobId?: string;
+}
+
 interface SqlRow {
   [column: string]: unknown;
 }
@@ -278,6 +291,17 @@ export class AppStore {
         content TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('success', 'error', 'warning', 'info')),
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        related_job_id TEXT,
+        read_at TEXT,
+        created_at TEXT NOT NULL
+      );
     `);
     this.addColumnIfMissing("users", "google_sub", "TEXT");
     this.addColumnIfMissing("users", "email", "TEXT");
@@ -311,6 +335,12 @@ export class AppStore {
 
       CREATE INDEX IF NOT EXISTS proxy_events_source_idx
         ON proxy_events(source, status, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS notifications_user_created_idx
+        ON notifications(user_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS notifications_user_unread_idx
+        ON notifications(user_id, read_at, created_at DESC);
     `);
   }
 
@@ -1040,6 +1070,79 @@ export class AppStore {
     this.db.prepare(`DELETE FROM contact_messages WHERE id = ?`).run(id);
   }
 
+  listAdminUserIds(): string[] {
+    const rows = this.db.prepare(`
+      SELECT id FROM users WHERE role = 'admin' AND disabled = 0
+    `).all() as SqlRow[];
+    return rows.map((row) => String(row.id));
+  }
+
+  createNotification(input: {
+    userId: string;
+    kind: NotificationKind;
+    title: string;
+    body: string;
+    relatedJobId?: string;
+  }): AppNotification {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO notifications (id, user_id, kind, title, body, related_job_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, input.userId, input.kind, input.title, input.body, input.relatedJobId ?? null, now);
+    return {
+      id,
+      userId: input.userId,
+      kind: input.kind,
+      title: input.title,
+      body: input.body,
+      createdAt: now,
+      ...(input.relatedJobId ? { relatedJobId: input.relatedJobId } : {})
+    };
+  }
+
+  listNotifications(userId: string, limit = 30): AppNotification[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM notifications
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(userId, limit) as SqlRow[];
+    return rows.map(mapNotification);
+  }
+
+  unreadNotificationCount(userId: string): number {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM notifications
+      WHERE user_id = ? AND read_at IS NULL
+    `).get(userId) as SqlRow;
+    return Number(row.count ?? 0);
+  }
+
+  markNotificationRead(userId: string, notificationId: string): AppNotification | undefined {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      UPDATE notifications
+      SET read_at = ?
+      WHERE id = ? AND user_id = ? AND read_at IS NULL
+    `).run(now, notificationId, userId);
+    const row = this.db.prepare(`
+      SELECT * FROM notifications WHERE id = ? AND user_id = ?
+    `).get(notificationId, userId) as SqlRow | undefined;
+    return row ? mapNotification(row) : undefined;
+  }
+
+  markAllNotificationsRead(userId: string): number {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`
+      UPDATE notifications
+      SET read_at = ?
+      WHERE user_id = ? AND read_at IS NULL
+    `).run(now, userId);
+    return Number(result.changes ?? 0);
+  }
+
   private addColumnIfMissing(table: "users" | "user_settings", name: string, type: string): void {
     const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
     if (columns.some((column) => column.name === name)) {
@@ -1171,6 +1274,19 @@ function mapProxyEvent(row: SqlRow): ProxyEventRecord {
     ...(row.elapsed_ms !== null && row.elapsed_ms !== undefined ? { elapsedMs: Number(row.elapsed_ms) } : {}),
     ...(row.error_message ? { errorMessage: String(row.error_message) } : {}),
     createdAt: String(row.created_at)
+  };
+}
+
+function mapNotification(row: SqlRow): AppNotification {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    kind: String(row.kind) as NotificationKind,
+    title: String(row.title),
+    body: String(row.body),
+    createdAt: String(row.created_at),
+    ...(row.read_at ? { readAt: String(row.read_at) } : {}),
+    ...(row.related_job_id ? { relatedJobId: String(row.related_job_id) } : {})
   };
 }
 

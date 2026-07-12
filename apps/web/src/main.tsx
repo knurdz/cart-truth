@@ -182,6 +182,16 @@ type PriceCheckJob = {
   updatedAt: string;
 };
 
+type AppNotification = {
+  id: string;
+  kind: "success" | "error" | "warning" | "info";
+  title: string;
+  body: string;
+  readAt?: string;
+  createdAt: string;
+  relatedJobId?: string;
+};
+
 type DarazSessionActionResponse = {
   status: "needs_user_action";
   message?: string;
@@ -1087,6 +1097,14 @@ function DashboardHeader({
   onSearchChange,
   primaryLabel,
   onPrimaryAction,
+  onSettingsClick,
+  notifications,
+  unreadCount,
+  showNotifications,
+  onNotificationsToggle,
+  onNotificationsClose,
+  onNotificationRead,
+  onNotificationsReadAll,
   showSearch = true
 }: {
   user: AppUser;
@@ -1094,10 +1112,30 @@ function DashboardHeader({
   onSearchChange: (value: string) => void;
   primaryLabel: string;
   onPrimaryAction: () => void;
+  onSettingsClick: () => void;
+  notifications: AppNotification[];
+  unreadCount: number;
+  showNotifications: boolean;
+  onNotificationsToggle: () => void;
+  onNotificationsClose: () => void;
+  onNotificationRead: (id: string) => void;
+  onNotificationsReadAll: () => void;
   showSearch?: boolean;
 }) {
   const firstName = (user.displayName?.split(" ")[0] || user.email?.split("@")[0] || user.username) ?? "there";
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const notificationsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showNotifications) return;
+    function handlePointerDown(event: MouseEvent) {
+      if (!notificationsRef.current?.contains(event.target as Node)) {
+        onNotificationsClose();
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [showNotifications, onNotificationsClose]);
 
   return (
     <header className="fd-header">
@@ -1122,18 +1160,56 @@ function DashboardHeader({
         </div>
       )}
       <div className="fd-header-actions">
-        <button type="button" className="fd-header-icon-btn" title="Settings">
+        <button type="button" className="fd-header-icon-btn" title="Settings" onClick={onSettingsClick}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
         </button>
-        <button type="button" className="fd-header-icon-btn" title="Notifications">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-          </svg>
-        </button>
+        <div className="fd-notifications-wrap" ref={notificationsRef}>
+          <button
+            type="button"
+            className={`fd-header-icon-btn ${showNotifications ? "fd-header-icon-btn--active" : ""}`}
+            title="Notifications"
+            onClick={onNotificationsToggle}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+            {unreadCount > 0 && <span className="fd-notifications-badge">{unreadCount > 9 ? "9+" : unreadCount}</span>}
+          </button>
+          {showNotifications && (
+            <div className="fd-notifications-panel">
+              <div className="fd-notifications-header">
+                <strong>Notifications</strong>
+                {unreadCount > 0 && (
+                  <button type="button" className="fd-notifications-mark-all" onClick={() => void onNotificationsReadAll()}>
+                    Mark all read
+                  </button>
+                )}
+              </div>
+              {notifications.length === 0 ? (
+                <p className="fd-notifications-empty">No notifications yet.</p>
+              ) : (
+                <div className="fd-notifications-list">
+                  {notifications.map((notification) => (
+                    <button
+                      key={notification.id}
+                      type="button"
+                      className={`fd-notification-item fd-notification-item--${notification.kind} ${notification.readAt ? "fd-notification-item--read" : ""}`}
+                      onClick={() => void onNotificationRead(notification.id)}
+                    >
+                      <span className="fd-notification-title">{notification.title}</span>
+                      <span className="fd-notification-body">{notification.body}</span>
+                      <span className="fd-notification-time">{formatRelativeTime(notification.createdAt)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <button type="button" className="fd-header-primary-btn" onClick={onPrimaryAction}>
           {primaryLabel}
         </button>
@@ -1676,6 +1752,14 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [darkMode, setDarkMode] = useState(false);
+  const [addMode, setAddMode] = useState<"url" | "search">("url");
+  const [darazQuery, setDarazQuery] = useState("");
+  const [searchingDaraz, setSearchingDaraz] = useState(false);
+  const [searchResults, setSearchResults] = useState<DarazSearchResult[]>([]);
+  const [selectedSearchProduct, setSelectedSearchProduct] = useState<DarazSearchResult | undefined>();
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   const darazSessionWarning = darazSessionAddWarning(darazSession, credentials);
 
@@ -1714,6 +1798,10 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
   function openCreateModal() {
     clearMessage();
     setActivityLog([]);
+    setAddMode("url");
+    setDarazQuery("");
+    setSearchResults([]);
+    setSelectedSearchProduct(undefined);
     setShowCreateModal(true);
   }
 
@@ -1725,7 +1813,62 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
 
   useEffect(() => {
     void refresh();
+    void refreshNotifications();
+    const interval = window.setInterval(() => {
+      void refreshNotifications();
+    }, 30000);
+    return () => window.clearInterval(interval);
   }, []);
+
+  async function refreshNotifications() {
+    try {
+      const response = await fetchJson<{ notifications: AppNotification[]; unreadCount: number }>("/api/notifications");
+      setNotifications(response.notifications);
+      setUnreadCount(response.unreadCount);
+    } catch {
+      // Ignore notification refresh errors.
+    }
+  }
+
+  async function markNotificationRead(notificationId: string) {
+    const response = await fetchJson<{ notification: AppNotification; unreadCount: number }>(`/api/notifications/${notificationId}/read`, {
+      method: "PATCH"
+    });
+    setNotifications((items) => items.map((item) => (item.id === response.notification.id ? response.notification : item)));
+    setUnreadCount(response.unreadCount);
+  }
+
+  async function markAllNotificationsRead() {
+    await postJson("/api/notifications/read-all", {});
+    setNotifications((items) => items.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })));
+    setUnreadCount(0);
+  }
+
+  async function searchDarazProducts(event?: React.FormEvent) {
+    event?.preventDefault();
+    const query = darazQuery.trim();
+    if (!query) return;
+    setSearchingDaraz(true);
+    clearMessage();
+    try {
+      const response = await postJson<{ results: DarazSearchResult[] }>("/api/daraz/search", { query });
+      setSearchResults(response.results);
+      setSelectedSearchProduct(undefined);
+      if (response.results.length === 0) {
+        setMessage("No products found. Try a different search.", "warn");
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error), "error");
+    } finally {
+      setSearchingDaraz(false);
+    }
+  }
+
+  function selectSearchProduct(product: DarazSearchResult) {
+    setSelectedSearchProduct(product);
+    setProductUrl(product.url);
+    clearMessage();
+  }
 
   const hasSavedCredentialsForExpiredSession = credentials.saved && darazSession.status !== "saved";
 
@@ -1745,8 +1888,13 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     setLatest((current) => pickCheckoutResult(current, runs) ?? current);
   }
 
-  async function addLink(event: React.FormEvent) {
-    event.preventDefault();
+  async function addLink(event?: React.FormEvent, urlOverride?: string) {
+    event?.preventDefault();
+    const url = (urlOverride ?? productUrl).trim();
+    if (!url) {
+      setMessage(addMode === "search" ? "Select a product from search results first." : "Enter a Daraz product URL.", "warn");
+      return;
+    }
     setAddingLink(true);
     clearMessage();
     setActivityLog([]);
@@ -1756,7 +1904,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     }
     pushActivity("Fetching product page price from Daraz…");
     try {
-      const response = await postJson<{ link: SavedLink; checkJob: PriceCheckJob; message?: string }>("/api/links", { url: productUrl.trim() });
+      const response = await postJson<{ link: SavedLink; checkJob: PriceCheckJob; message?: string }>("/api/links", { url });
       if (response.link) {
         setLinks((items) => [response.link!, ...items.filter((item) => item.id !== response.link!.id)]);
         const observed = parseObservedPrice(response.link);
@@ -1766,6 +1914,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
         completeRunningActivity("Product saved to your list.", "success");
       }
       setProductUrl("");
+      setSelectedSearchProduct(undefined);
       pushActivity("Queueing checkout verification…");
       setMessage("Verifying final checkout price…", "info");
       const outcome = await trackPriceCheckJob(response.checkJob.id, { showActivity: true });
@@ -1773,6 +1922,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
         closeCreateModal();
         setTab("products");
       }
+      void refreshNotifications();
     } catch (error) {
       const errorText = error instanceof Error ? error.message : String(error);
       failActivity(errorText);
@@ -1883,6 +2033,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     }
 
     if (!current) {
+      void refreshNotifications();
       return "unknown";
     }
     if (current.status === "needs_user_action") {
@@ -1898,6 +2049,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
         browserUrl: current.session?.browserUrl
       });
       await refresh().catch(() => undefined);
+      void refreshNotifications();
       return "needs_user_action";
     }
     if (current.status === "completed" && current.runId) {
@@ -1909,6 +2061,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
       }
       setMessage(successMessage, "success");
       await refresh();
+      void refreshNotifications();
       return "completed";
     }
     const failureMessage = current.message ?? plainStatus(current.status);
@@ -1917,6 +2070,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     }
     setMessage(failureMessage, "error");
     await refresh().catch(() => undefined);
+    void refreshNotifications();
     return "failed";
   }
 
@@ -2005,7 +2159,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
               <span className="fd-sidebar-user-role">{user.role}</span>
             </div>
           </div>
-          <button type="button" className="fd-nav-item" onClick={() => setTab("settings")}>
+          <button type="button" className="fd-nav-item" onClick={() => onNavigate("/docs")}>
             <span className="fd-nav-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
                 <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -2031,6 +2185,14 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
           onSearchChange={setSearchQuery}
           primaryLabel={primaryLabel}
           onPrimaryAction={primaryAction}
+          onSettingsClick={() => setTab("settings")}
+          notifications={notifications}
+          unreadCount={unreadCount}
+          showNotifications={showNotifications}
+          onNotificationsToggle={() => setShowNotifications((open) => !open)}
+          onNotificationsClose={() => setShowNotifications(false)}
+          onNotificationRead={markNotificationRead}
+          onNotificationsReadAll={markAllNotificationsRead}
           showSearch={tab === "products" || tab === "dashboard"}
         />
         <div className="fd-content">
@@ -2087,7 +2249,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
       {/* CREATE MODAL */}
       {showCreateModal && (
         <div className="modal-overlay">
-          <div className="modal-card">
+          <div className={`modal-card ${addMode === "search" ? "modal-card--wide" : ""}`}>
             <div className="modal-header">
               <h3 className="modal-title">Monitor a New Product</h3>
               <button 
@@ -2099,26 +2261,99 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
                 &times;
               </button>
             </div>
+            <div className="modal-tabs">
+              <button
+                type="button"
+                className={`modal-tab ${addMode === "url" ? "modal-tab--active" : ""}`}
+                disabled={addingLink}
+                onClick={() => setAddMode("url")}
+              >
+                Paste Link
+              </button>
+              <button
+                type="button"
+                className={`modal-tab ${addMode === "search" ? "modal-tab--active" : ""}`}
+                disabled={addingLink}
+                onClick={() => setAddMode("search")}
+              >
+                Search Daraz
+              </button>
+            </div>
             <form onSubmit={(e) => void addLink(e)}>
               <div className="modal-body">
-                <p className="modal-help">
-                  Paste a Daraz product link below. CartTruth will verify the checkout total price (including payment processing fees and delivery charges) regularly.
-                </p>
-                {darazSessionWarning && !addingLink && (
-                  <div className="modal-message modal-message--warn" style={{ marginBottom: 12 }}>
-                    {darazSessionWarning}
-                  </div>
+                {addMode === "url" ? (
+                  <>
+                    <p className="modal-help">
+                      Paste a Daraz product link below. CartTruth will verify the checkout total price (including payment processing fees and delivery charges) regularly.
+                    </p>
+                    {darazSessionWarning && !addingLink && (
+                      <div className="modal-message modal-message--warn" style={{ marginBottom: 12 }}>
+                        {darazSessionWarning}
+                      </div>
+                    )}
+                    <input
+                      type="text"
+                      value={productUrl}
+                      onChange={(e) => setProductUrl(e.target.value)}
+                      placeholder="https://www.daraz.lk/products/..."
+                      className="modal-input"
+                      autoFocus
+                      disabled={addingLink}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <p className="modal-help">
+                      Search Daraz products and select one to monitor. CartTruth will save it and verify the final checkout price.
+                    </p>
+                    <div className="modal-search-bar">
+                      <input
+                        type="search"
+                        value={darazQuery}
+                        onChange={(e) => setDarazQuery(e.target.value)}
+                        placeholder="Search Daraz products"
+                        className="modal-input"
+                        disabled={addingLink || searchingDaraz}
+                      />
+                      <button
+                        type="button"
+                        className="db-btn-secondary"
+                        disabled={addingLink || searchingDaraz || !darazQuery.trim()}
+                        onClick={() => void searchDarazProducts()}
+                      >
+                        {searchingDaraz ? "Searching…" : "Search"}
+                      </button>
+                    </div>
+                    {searchResults.length > 0 && (
+                      <div className="modal-search-results">
+                        {searchResults.map((product) => (
+                          <button
+                            key={product.url}
+                            type="button"
+                            className={`modal-search-result ${selectedSearchProduct?.url === product.url ? "modal-search-result--selected" : ""}`}
+                            disabled={addingLink}
+                            onClick={() => selectSearchProduct(product)}
+                          >
+                            {product.imageUrl ? (
+                              <img src={product.imageUrl} alt="" className="modal-search-result-image" />
+                            ) : (
+                              <div className="modal-search-result-image modal-search-result-image--placeholder" />
+                            )}
+                            <div className="modal-search-result-body">
+                              <strong>{product.title}</strong>
+                              <span>{formatMoney(product.observedPrice)}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {selectedSearchProduct && (
+                      <p className="modal-selected-product">
+                        Selected: <strong>{selectedSearchProduct.title}</strong>
+                      </p>
+                    )}
+                  </>
                 )}
-                <input
-                  type="text"
-                  value={productUrl}
-                  onChange={(e) => setProductUrl(e.target.value)}
-                  placeholder="https://www.daraz.lk/products/..."
-                  className="modal-input"
-                  required
-                  autoFocus
-                  disabled={addingLink}
-                />
                 <ActivityLog entries={activityLog} />
                 {message && <p className={`modal-message modal-message--${messageTone}`}>{message}</p>}
                 {darazSession.status !== "saved" && activityLog.length > 0 && (
@@ -2140,7 +2375,11 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
                 >
                   Cancel
                 </button>
-                <button type="submit" className="db-btn-primary" disabled={addingLink}>
+                <button
+                  type="submit"
+                  className="db-btn-primary"
+                  disabled={addingLink || (addMode === "search" && !selectedSearchProduct)}
+                >
                   {addingLink ? "Working…" : "Save & Check"}
                 </button>
               </div>
@@ -4095,6 +4334,20 @@ function formatMoney(value?: Money) {
 
 function formatLkr(minorUnits: number) {
   return `Rs. ${(minorUnits / 100).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatRelativeTime(value: string) {
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return value;
+  const diffMs = Date.now() - timestamp;
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function plainStatus(status: string) {

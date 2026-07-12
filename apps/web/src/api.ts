@@ -315,6 +315,24 @@ export function createApiApp(runtime: LocalRuntime): Express {
     response.json(runtime.settingsForUser(request.user.id));
   });
 
+  app.get("/api/notifications", requireUser(runtime), (request, response) => {
+    response.json(runtime.listNotifications(request.user.id));
+  });
+
+  app.patch("/api/notifications/:notificationId/read", requireUser(runtime), (request, response) => {
+    const notification = runtime.markNotificationRead(request.user.id, routeParam(request, "notificationId"));
+    if (!notification) {
+      response.status(404).json({ error: "Notification not found." });
+      return;
+    }
+    response.json({ notification, unreadCount: runtime.store.unreadNotificationCount(request.user.id) });
+  });
+
+  app.post("/api/notifications/read-all", requireUser(runtime), (request, response) => {
+    const marked = runtime.markAllNotificationsRead(request.user.id);
+    response.json({ marked, unreadCount: 0 });
+  });
+
   app.patch("/api/settings", requireUser(runtime), (request, response, next) => {
     try {
       const body = UserSettingsBodySchema.parse(request.body ?? {});
@@ -682,6 +700,7 @@ export function createApiApp(runtime: LocalRuntime): Express {
     try {
       const body = ContactMessageBodySchema.parse(request.body ?? {});
       const message = runtime.store.createContactMessage({ subject: body.subject, content: body.content });
+      runtime.notifyAdminsOfContactMessage(message.subject, message.content);
       runtime.logger.info("contact message received", { messageId: message.id, subject: message.subject });
       response.status(201).json({ ok: true, message });
     } catch (error) {

@@ -41,7 +41,9 @@ import {
   AppStore,
   savedLinkToProduct,
   type ApiKeyRecord,
+  type AppNotification,
   type AppUser,
+  type NotificationKind,
   type PriceCheckJob,
   type PriceCheckJobSource,
   type ProxyEventSource,
@@ -221,6 +223,61 @@ export class LocalRuntime {
     this.logger.info("price check job queued", { userId, jobId: job.id, source, linkIds });
     this.schedulePriceCheckDrain();
     return job;
+  }
+
+  listNotifications(userId: string): { notifications: AppNotification[]; unreadCount: number } {
+    return {
+      notifications: this.store.listNotifications(userId),
+      unreadCount: this.store.unreadNotificationCount(userId)
+    };
+  }
+
+  markNotificationRead(userId: string, notificationId: string): AppNotification | undefined {
+    return this.store.markNotificationRead(userId, notificationId);
+  }
+
+  markAllNotificationsRead(userId: string): number {
+    return this.store.markAllNotificationsRead(userId);
+  }
+
+  notifyAdminsOfContactMessage(subject: string, content: string): void {
+    const preview = content.length > 120 ? `${content.slice(0, 117)}...` : content;
+    for (const adminId of this.store.listAdminUserIds()) {
+      this.store.createNotification({
+        userId: adminId,
+        kind: "info",
+        title: `New contact message: ${subject}`,
+        body: preview
+      });
+    }
+  }
+
+  private notifyPriceCheckJobResult(job: PriceCheckJob): void {
+    const kindByStatus: Record<PriceCheckJob["status"], NotificationKind | undefined> = {
+      queued: undefined,
+      running: undefined,
+      completed: "success",
+      failed: "error",
+      needs_user_action: "warning",
+      skipped: "info"
+    };
+    const titleByStatus: Record<Exclude<PriceCheckJob["status"], "queued" | "running">, string> = {
+      completed: "Price check completed",
+      failed: "Price check failed",
+      needs_user_action: "Daraz action required",
+      skipped: "Price check skipped"
+    };
+    const kind = kindByStatus[job.status];
+    if (!kind || job.status === "queued" || job.status === "running") {
+      return;
+    }
+    this.store.createNotification({
+      userId: job.userId,
+      kind,
+      title: titleByStatus[job.status],
+      body: job.message ?? titleByStatus[job.status],
+      relatedJobId: job.id
+    });
   }
 
   listPriceCheckJobs(userId: string): PriceCheckJob[] {
@@ -564,6 +621,9 @@ export class LocalRuntime {
           status: "skipped",
           message: "No saved Daraz links found for this job."
         });
+        if (finished) {
+          this.notifyPriceCheckJobResult(finished);
+        }
         if (job.source === "scheduled" && finished) {
           this.store.markAutoPriceCheckJobFinished(job.userId, finished);
         }
@@ -579,6 +639,9 @@ export class LocalRuntime {
         runId: result.runId,
         message: result.message ?? "Price check finished."
       });
+      if (finished) {
+        this.notifyPriceCheckJobResult(finished);
+      }
       if (job.source === "scheduled" && finished) {
         this.store.markAutoPriceCheckJobFinished(job.userId, finished);
       }
@@ -590,6 +653,9 @@ export class LocalRuntime {
           message: error.message,
           session: error.session
         });
+        if (finished) {
+          this.notifyPriceCheckJobResult(finished);
+        }
         if (job.source === "scheduled" && finished) {
           this.store.markAutoPriceCheckJobFinished(job.userId, finished);
         }
@@ -602,6 +668,9 @@ export class LocalRuntime {
           status: "needs_user_action",
           message
         });
+        if (finished) {
+          this.notifyPriceCheckJobResult(finished);
+        }
         if (job.source === "scheduled" && finished) {
           this.store.markAutoPriceCheckJobFinished(job.userId, finished);
         }
@@ -612,6 +681,9 @@ export class LocalRuntime {
         status: "failed",
         message
       });
+      if (finished) {
+        this.notifyPriceCheckJobResult(finished);
+      }
       if (job.source === "scheduled" && finished) {
         this.store.markAutoPriceCheckJobFinished(job.userId, finished);
       }

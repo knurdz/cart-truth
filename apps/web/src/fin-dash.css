@@ -1880,3 +1880,120 @@ body.dashboard-mode .fd-form-input:focus {
   font-size: 12px;
   color: #9ca3af;
 }
+
+.fd-header-icon-btn--active {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.fd-notifications-wrap {
+  position: relative;
+}
+
+.fd-notifications-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.fd-notifications-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(360px, calc(100vw - 32px));
+  max-height: 420px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+  z-index: 1200;
+}
+
+.fd-notifications-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+  color: #111827;
+}
+
+.fd-notifications-mark-all {
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.fd-notifications-empty {
+  margin: 0;
+  padding: 20px 14px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.fd-notifications-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.fd-notification-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #f3f4f6;
+  background: #ffffff;
+  text-align: left;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.fd-notification-item:hover {
+  background: #f9fafb;
+}
+
+.fd-notification-item--read {
+  opacity: 0.72;
+}
+
+.fd-notification-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.fd-notification-body {
+  font-size: 12px;
+  color: #4b5563;
+  line-height: 1.45;
+}
+
+.fd-notification-time {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.fd-notification-item--success .fd-notification-title { color: #047857; }
+.fd-notification-item--error .fd-notification-title { color: #b91c1c; }
+.fd-notification-item--warning .fd-notification-title { color: #b45309; }
+.fd-notification-item--info .fd-notification-title { color: #1d4ed8; }
