@@ -1609,6 +1609,52 @@ function MiniSparkline({ data, color = "#22c55e", width = 120, height = 40 }: {
 /* ============================================================
    DASHBOARD SHELL — sidebar layout
    ============================================================ */
+type MessageTone = "success" | "info" | "error" | "warn";
+
+type ActivityLogEntry = {
+  id: string;
+  text: string;
+  tone: MessageTone;
+  status: "running" | "done" | "error" | "warn";
+};
+
+function StatusBanner({ message, tone = "info" }: { message: string; tone?: MessageTone }) {
+  if (!message) return null;
+  return <div className={`fd-alert fd-alert--${tone}`}>{message}</div>;
+}
+
+function activityIcon(status: ActivityLogEntry["status"]) {
+  if (status === "running") return "◌";
+  if (status === "done") return "✓";
+  if (status === "error") return "✕";
+  return "!";
+}
+
+function ActivityLog({ entries }: { entries: ActivityLogEntry[] }) {
+  if (entries.length === 0) return null;
+  return (
+    <div className="modal-activity-log" aria-live="polite">
+      {entries.map((entry) => (
+        <div
+          key={entry.id}
+          className={`modal-activity-step modal-activity-step--${entry.status} modal-activity-step--tone-${entry.tone}`}
+        >
+          <span className="modal-activity-icon" aria-hidden="true">{activityIcon(entry.status)}</span>
+          <span className="modal-activity-text">{entry.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function darazSessionAddWarning(session: DarazSession, credentials: DarazCredentialStatus): string {
+  if (session.status === "saved") return "";
+  if (credentials.saved) {
+    return "Daraz session is not active. CartTruth will try to reconnect automatically before verifying the final checkout price.";
+  }
+  return "Daraz session is not connected. The product page price will be saved, but you need to connect Daraz in the Daraz Session tab before final checkout price can be verified.";
+}
+
 function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: () => Promise<void>; onNavigate: (path: string) => void }) {
   const [tab, setTab] = useState<"dashboard" | "products" | "session" | "messages" | "admin" | "settings">("dashboard");
 
@@ -1624,12 +1670,58 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
   const [credentials, setCredentials] = useState<DarazCredentialStatus>({ saved: false });
   const [addingLink, setAddingLink] = useState(false);
   const [activeJob, setActiveJob] = useState<PriceCheckJob | undefined>();
-  const [message, setMessage] = useState("");
-
-  // Search and Modal states
+  const [message, setMessageText] = useState("");
+  const [messageTone, setMessageTone] = useState<MessageTone>("info");
+  const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [darkMode, setDarkMode] = useState(false);
+
+  const darazSessionWarning = darazSessionAddWarning(darazSession, credentials);
+
+  function setMessage(text: string, tone: MessageTone = "info") {
+    setMessageText(text);
+    setMessageTone(tone);
+  }
+
+  function clearMessage() {
+    setMessageText("");
+    setMessageTone("info");
+  }
+
+  function pushActivity(text: string, tone: MessageTone = "info", status: ActivityLogEntry["status"] = "running") {
+    setActivityLog((prev) => [
+      ...prev.map((entry) => (entry.status === "running" ? { ...entry, status: "done" as const } : entry)),
+      { id: `${Date.now()}-${prev.length}`, text, tone, status }
+    ]);
+  }
+
+  function completeRunningActivity(text?: string, tone: MessageTone = "success") {
+    setActivityLog((prev) => {
+      const completed = prev.map((entry) => (entry.status === "running" ? { ...entry, status: "done" as const } : entry));
+      if (!text) return completed;
+      return [...completed, { id: `${Date.now()}-done`, text, tone, status: "done" as const }];
+    });
+  }
+
+  function failActivity(text: string) {
+    setActivityLog((prev) => [
+      ...prev.map((entry) => (entry.status === "running" ? { ...entry, status: "error" as const } : entry)),
+      { id: `${Date.now()}-error`, text, tone: "error", status: "error" }
+    ]);
+  }
+
+  function openCreateModal() {
+    clearMessage();
+    setActivityLog([]);
+    setShowCreateModal(true);
+  }
+
+  function closeCreateModal() {
+    setShowCreateModal(false);
+    clearMessage();
+    setActivityLog([]);
+  }
 
   useEffect(() => {
     void refresh();
@@ -1650,26 +1742,41 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     setLinks(saved.links);
     setHistory(runs);
     setCredentials(credentialStatus);
-    if (!latest && runs[0]) {
-      setLatest(runs[0]);
-    }
+    setLatest((current) => pickCheckoutResult(current, runs) ?? current);
   }
 
   async function addLink(event: React.FormEvent) {
     event.preventDefault();
     setAddingLink(true);
-    setMessage("Reading product page price...");
+    clearMessage();
+    setActivityLog([]);
+    pushActivity("Validating Daraz product URL…");
+    if (darazSessionWarning) {
+      pushActivity(darazSessionWarning, "warn", "warn");
+    }
+    pushActivity("Fetching product page price from Daraz…");
     try {
       const response = await postJson<{ link: SavedLink; checkJob: PriceCheckJob; message?: string }>("/api/links", { url: productUrl.trim() });
       if (response.link) {
         setLinks((items) => [response.link!, ...items.filter((item) => item.id !== response.link!.id)]);
+        const observed = parseObservedPrice(response.link);
+        const priceLabel = observed ? formatMoney(observed) : "price pending";
+        completeRunningActivity(`Product page price saved — ${response.link.title} (${priceLabel}).`, "success");
+      } else {
+        completeRunningActivity("Product saved to your list.", "success");
       }
       setProductUrl("");
-      setMessage("Final checkout price check queued.");
-      setShowCreateModal(false);
-      await trackPriceCheckJob(response.checkJob.id);
+      pushActivity("Queueing checkout verification…");
+      setMessage("Verifying final checkout price…", "info");
+      const outcome = await trackPriceCheckJob(response.checkJob.id, { showActivity: true });
+      if (outcome === "completed") {
+        closeCreateModal();
+        setTab("products");
+      }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      const errorText = error instanceof Error ? error.message : String(error);
+      failActivity(errorText);
+      setMessage(errorText, "error");
     } finally {
       setAddingLink(false);
     }
@@ -1681,15 +1788,15 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
   }
 
   async function startDarazLogin() {
-    setMessage("Opening your Daraz browser session...");
+    setMessage("Opening your Daraz browser session...", "info");
     try {
       const response = await postJson<{ captureId: string; browserUrl?: string }>("/api/daraz/session/start", {});
       setCaptureId(response.captureId);
       setBrowserUrl(response.browserUrl ?? "");
-      setMessage("Daraz browser opened on the server. Complete login or verification there, then save.");
+      setMessage("Daraz browser opened on the server. Complete login or verification there, then save.", "success");
       await refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      setMessage(error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -1698,10 +1805,10 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     try {
       const response = await postJson<{ session?: DarazSession }>("/api/daraz/session/save", { captureId });
       setDarazSession(response.session ?? { status: "saved" });
-      setMessage("Your Daraz session was saved.");
+      setMessage("Your Daraz session was saved.", "success");
     } catch (error) {
       await refresh().catch(() => undefined);
-      setMessage(error instanceof Error ? error.message : String(error));
+      setMessage(error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -1710,7 +1817,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     setDarazSession(session);
     setCaptureId("");
     setBrowserUrl("");
-    setMessage("Daraz session reset.");
+    setMessage("Daraz session reset.", "info");
   }
 
   async function stopDarazBrowser() {
@@ -1718,21 +1825,21 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     setDarazSession(session);
     setCaptureId("");
     setBrowserUrl("");
-    setMessage("Remote Daraz browser closed.");
+    setMessage("Remote Daraz browser closed.", "info");
   }
 
   async function checkAllLinks() {
     if (links.length === 0) {
-      setMessage("Save at least one Daraz link first.");
+      setMessage("Save at least one Daraz link first.", "warn");
       return;
     }
     setChecking(true);
-    setMessage(hasSavedCredentialsForExpiredSession ? "Reconnecting to Daraz..." : "Queueing saved-link check...");
+    setMessage(hasSavedCredentialsForExpiredSession ? "Reconnecting to Daraz..." : "Queueing saved-link check...", "info");
     try {
       const response = await postJson<{ job: PriceCheckJob }>("/api/links/check-jobs", {});
       await trackPriceCheckJob(response.job.id);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      setMessage(error instanceof Error ? error.message : String(error), "error");
     } finally {
       setChecking(false);
     }
@@ -1742,19 +1849,33 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     setBrowserUrl(response.browserUrl ?? response.session?.browserUrl ?? "");
     setCaptureId(response.session?.captureId ?? "");
     setDarazSession(response.session ?? darazSession);
-    setMessage(response.message ?? "Daraz needs verification. Open the remote browser, finish it, then save session.");
+    setMessage(response.message ?? "Daraz needs verification. Open the remote browser, finish it, then save session.", "warn");
   }
 
-  async function trackPriceCheckJob(jobId: string) {
+  async function trackPriceCheckJob(jobId: string, options?: { showActivity?: boolean }): Promise<"completed" | "needs_user_action" | "failed" | "unknown"> {
+    const logStep = (text: string, tone: MessageTone = "info") => {
+      setMessage(text, tone);
+      if (options?.showActivity) {
+        pushActivity(text, tone, "running");
+      }
+    };
+
     let current: PriceCheckJob | undefined;
     for (let attempt = 0; attempt < 120; attempt += 1) {
       const response = await fetchJson<{ job: PriceCheckJob }>(`/api/price-check-jobs/${jobId}`);
       current = response.job;
       setActiveJob(current);
       if (current.status === "queued") {
-        setMessage("Final checkout price check queued.");
+        logStep("Waiting in checkout verification queue…", "info");
       } else if (current.status === "running") {
-        setMessage(hasSavedCredentialsForExpiredSession ? "Reconnecting to Daraz..." : "Checking final checkout price...");
+        logStep(
+          hasSavedCredentialsForExpiredSession
+            ? "Reconnecting to Daraz and opening checkout…"
+            : darazSession.status !== "saved"
+              ? "Connecting Daraz session and opening checkout…"
+              : "Opening Daraz checkout and calculating final price (fees + delivery)…",
+          "info"
+        );
       } else {
         break;
       }
@@ -1762,27 +1883,41 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     }
 
     if (!current) {
-      return;
+      return "unknown";
     }
     if (current.status === "needs_user_action") {
+      const actionMessage = current.message ?? "Daraz needs verification. Open the remote browser, finish it, then save session.";
+      if (options?.showActivity) {
+        failActivity(actionMessage);
+        pushActivity("Go to Daraz Session to connect your account, then run verification again.", "warn", "warn");
+      }
       await handleDarazSessionAction({
         status: "needs_user_action",
-        message: current.message,
+        message: actionMessage,
         session: current.session,
         browserUrl: current.session?.browserUrl
       });
       await refresh().catch(() => undefined);
-      return;
+      return "needs_user_action";
     }
     if (current.status === "completed" && current.runId) {
       const result = await fetchJson<DarazCheckResult>(`/api/daraz/runs/${current.runId}`);
       setLatest(result);
-      setMessage(current.message ?? "Product page price and final checkout price updated.");
+      const successMessage = current.message ?? `Final checkout price verified — ${formatMoney(result.checkoutTotal)}.`;
+      if (options?.showActivity) {
+        completeRunningActivity(successMessage, "success");
+      }
+      setMessage(successMessage, "success");
       await refresh();
-      return;
+      return "completed";
     }
-    setMessage(current.message ?? plainStatus(current.status));
+    const failureMessage = current.message ?? plainStatus(current.status);
+    if (options?.showActivity) {
+      failActivity(failureMessage);
+    }
+    setMessage(failureMessage, "error");
     await refresh().catch(() => undefined);
+    return "failed";
   }
 
   useEffect(() => {
@@ -1795,7 +1930,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
 
   const primaryAction = tab === "products" || tab === "session"
     ? () => void checkAllLinks()
-    : () => setShowCreateModal(true);
+    : () => openCreateModal();
   const primaryLabel = tab === "products" || tab === "session"
     ? (checking ? "Running..." : "Run Check")
     : "Monitor Product";
@@ -1907,7 +2042,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
               darazSession={darazSession}
               onNavigate={setTab}
               user={user}
-              onCreateClick={() => setShowCreateModal(true)}
+              onCreateClick={openCreateModal}
               onRunCheck={() => void checkAllLinks()}
               checking={checking}
             />
@@ -1923,6 +2058,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
               checkAllLinks={checkAllLinks}
               activeJob={activeJob}
               message={message}
+              messageTone={messageTone}
             />
           )}
           {tab === "session" && (
@@ -1939,6 +2075,7 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
               checkAllLinks={checkAllLinks}
               activeJob={activeJob}
               message={message}
+              messageTone={messageTone}
             />
           )}
           {tab === "messages" && user.role === "admin" && <MessagesPanel />}
@@ -1956,7 +2093,8 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
               <button 
                 type="button" 
                 className="modal-close" 
-                onClick={() => { setShowCreateModal(false); setMessage(""); }}
+                disabled={addingLink}
+                onClick={() => { if (!addingLink) closeCreateModal(); }}
               >
                 &times;
               </button>
@@ -1966,6 +2104,11 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
                 <p className="modal-help">
                   Paste a Daraz product link below. CartTruth will verify the checkout total price (including payment processing fees and delivery charges) regularly.
                 </p>
+                {darazSessionWarning && !addingLink && (
+                  <div className="modal-message modal-message--warn" style={{ marginBottom: 12 }}>
+                    {darazSessionWarning}
+                  </div>
+                )}
                 <input
                   type="text"
                   value={productUrl}
@@ -1974,19 +2117,31 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
                   className="modal-input"
                   required
                   autoFocus
+                  disabled={addingLink}
                 />
-                {message && <p className="modal-message">{message}</p>}
+                <ActivityLog entries={activityLog} />
+                {message && <p className={`modal-message modal-message--${messageTone}`}>{message}</p>}
+                {darazSession.status !== "saved" && activityLog.length > 0 && (
+                  <button
+                    type="button"
+                    className="modal-session-link"
+                    onClick={() => { closeCreateModal(); setTab("session"); }}
+                  >
+                    Open Daraz Session setup →
+                  </button>
+                )}
               </div>
               <div className="modal-footer">
                 <button 
                   type="button" 
                   className="db-btn-secondary" 
-                  onClick={() => { setShowCreateModal(false); setMessage(""); }}
+                  disabled={addingLink}
+                  onClick={() => { if (!addingLink) closeCreateModal(); }}
                 >
                   Cancel
                 </button>
                 <button type="submit" className="db-btn-primary" disabled={addingLink}>
-                  {addingLink ? "Saving..." : "Save & Check"}
+                  {addingLink ? "Working…" : "Save & Check"}
                 </button>
               </div>
             </form>
@@ -2041,7 +2196,8 @@ function DashboardOverview({
     ? ((chartData[chartData.length - 1] - chartData[0]) / chartData[0]) * 100
     : 0;
   const sparkData = chartData.slice(-6);
-  const productCompare = buildProductCompareChart(links, latest);
+  const checkoutResult = pickCheckoutResult(latest, history);
+  const productCompare = buildProductCompareChart(links, checkoutResult);
   const chartFmt = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v));
 
   return (
@@ -2113,18 +2269,23 @@ function DashboardOverview({
           ) : (
             <div className="fd-contact-list">
               {links.slice(0, 5).map(link => {
-                const price = parseObservedPrice(link);
+                const listed = parseObservedPrice(link);
+                const checkoutProduct = findProductCheckout(link, checkoutResult);
+                const verified = checkoutProduct?.checkoutLinePrice ?? checkoutProduct?.checkoutUnitPrice;
                 return (
                   <div className="fd-contact-row" key={link.id}>
                     <div className="fd-contact-avatar">
                       {link.imageUrl ? <img src={link.imageUrl} alt={link.title} /> : <span>📦</span>}
                     </div>
                     <div className="fd-contact-info">
-                      <span className="fd-contact-name">{link.title}</span>
-                      <span className="fd-contact-role">{formatMoney(price)} listed</span>
+                      <span className="fd-contact-name" title={link.title}>{link.title}</span>
+                      <span className="fd-contact-role">
+                        {listed ? `${formatMoney(listed)} listed` : "Listed price pending"}
+                        {verified ? ` · ${formatMoney(verified)} verified` : ""}
+                      </span>
                     </div>
-                    <span className={`fd-status-pill ${sessionActive ? "fd-status-pill--ok" : "fd-status-pill--warn"}`}>
-                      {sessionActive ? "Active" : "Offline"}
+                    <span className={`fd-status-pill ${verified ? "fd-status-pill--ok" : sessionActive ? "fd-status-pill--warn" : "fd-status-pill--warn"}`}>
+                      {verified ? "Verified" : sessionActive ? "Listed only" : "Offline"}
                     </span>
                   </div>
                 );
@@ -2177,8 +2338,8 @@ function DashboardOverview({
                       <span>{isOk ? "✓" : "!"}</span>
                     </div>
                     <div className="fd-contact-info">
-                      <span className="fd-contact-name">
-                        {run.products[0]?.title ? run.products[0].title.substring(0, 28) + (run.products[0].title.length > 28 ? "…" : "") : `Run #${totalRuns - idx}`}
+                      <span className="fd-contact-name" title={run.products[0]?.title}>
+                        {run.products[0]?.title ?? `Run #${totalRuns - idx}`}
                       </span>
                       <span className="fd-contact-role">{dateStr}</span>
                     </div>
@@ -2213,7 +2374,8 @@ function ProductsPanel({
   checking,
   checkAllLinks,
   activeJob,
-  message
+  message,
+  messageTone = "info"
 }: {
   links: SavedLink[];
   searchQuery: string;
@@ -2224,6 +2386,7 @@ function ProductsPanel({
   checkAllLinks: () => Promise<void>;
   activeJob: PriceCheckJob | undefined;
   message: string;
+  messageTone?: MessageTone;
 }) {
   const filteredLinks = useMemo(() => {
     if (!searchQuery.trim()) return links;
@@ -2235,7 +2398,8 @@ function ProductsPanel({
     return total + observed;
   }, 0), [filteredLinks]);
 
-  const productCompare = buildProductCompareChart(filteredLinks, latest);
+  const checkoutResult = useMemo(() => pickCheckoutResult(latest, history), [latest, history]);
+  const productCompare = buildProductCompareChart(filteredLinks, checkoutResult);
   const chartFmt = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v));
 
   return (
@@ -2252,7 +2416,7 @@ function ProductsPanel({
         </button>
       </div>
 
-      {message && <div className="info-message-banner">{message}</div>}
+      <StatusBanner message={message} tone={messageTone} />
       {activeJob && (
         <div className="active-job-banner">
           <span>{priceCheckJobLabel(activeJob)}</span>
@@ -2271,7 +2435,7 @@ function ProductsPanel({
         />
       </div>
 
-      <div className="fd-dash-bottom">
+      <div className="fd-products-layout">
         <div className="fd-panel-card">
           <h3 className="fd-panel-title" style={{ marginBottom: 16 }}>Monitored Links</h3>
           {filteredLinks.length === 0 ? (
@@ -2280,38 +2444,65 @@ function ProductsPanel({
             </div>
           ) : (
             <div className="fd-contact-list">
-              {filteredLinks.map((link) => (
+              {filteredLinks.map((link) => {
+                const listed = parseObservedPrice(link);
+                const checkoutProduct = findProductCheckout(link, checkoutResult);
+                const verified = checkoutProduct?.checkoutLinePrice ?? checkoutProduct?.checkoutUnitPrice;
+                return (
                 <div className="fd-contact-row" key={link.id}>
                   <div className="fd-contact-avatar">
                     {link.imageUrl ? <img src={link.imageUrl} alt={link.title} /> : <span>📦</span>}
                   </div>
-                  <div className="fd-contact-info">
-                    <span className="fd-contact-name">{link.title}</span>
-                    <a href={link.url} target="_blank" rel="noreferrer" className="fd-link-btn">View on Daraz ↗</a>
-                  </div>
-                  <span className="fd-recent-total">{formatMoney(parseObservedPrice(link))}</span>
+                    <div className="fd-contact-info">
+                      <span className="fd-contact-name" title={link.title}>{link.title}</span>
+                      <span className="fd-contact-role">
+                        {listed ? `${formatMoney(listed)} listed` : "Listed price pending"}
+                        {verified ? ` · ${formatMoney(verified)} verified` : ""}
+                      </span>
+                      <a href={link.url} target="_blank" rel="noreferrer" className="fd-link-btn" title={link.url}>View on Daraz ↗</a>
+                    </div>
+                  <span className="fd-recent-total" title={verified ? "Verified checkout line price" : "Product page price"}>
+                    {formatMoney(verified ?? listed)}
+                  </span>
                   <button type="button" className="fd-message-delete" onClick={() => void removeLink(link.id)} title="Remove">
                     <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
                   </button>
                 </div>
-              ))}
+              );})}
               <div className="fd-session-strip" style={{ marginTop: 12 }}>
                 <span>Product-page total</span>
                 <strong>{formatLkr(productPageTotal)}</strong>
               </div>
+              {checkoutResult?.checkoutTotal && (
+                <div className="fd-session-strip">
+                  <span>Verified checkout total</span>
+                  <strong>{formatMoney(checkoutResult.checkoutTotal)}</strong>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        <div className="fd-panel-card">
+        <div className="fd-panel-card fd-panel-card--checkout">
           <h3 className="fd-panel-title" style={{ marginBottom: 16 }}>Latest Checkout Results</h3>
-          {latest ? (
+          {checkoutResult && hasCheckoutDetails(checkoutResult) ? (
             <div className="price-results-section">
               <div className="fd-chart-headline-row" style={{ marginBottom: 16 }}>
-                <span className="fd-chart-headline">{formatMoney(latest.checkoutTotal)}</span>
-                <span className="fd-chart-headline-note">verified checkout total</span>
+                <span className="fd-chart-headline">{formatMoney(checkoutResult.checkoutTotal)}</span>
+                <span className="fd-chart-headline-note">
+                  verified checkout total · {new Date(checkoutResult.finishedAt).toLocaleString()}
+                </span>
               </div>
-              <PriceTable result={latest} />
+              <CheckoutSummary result={checkoutResult} />
+              <PriceTable result={checkoutResult} />
+            </div>
+          ) : checkoutResult ? (
+            <div className="price-results-section">
+              <StatusBanner
+                message={checkoutResult.message ?? "Checkout verification did not return final prices yet. Connect Daraz and run verification again."}
+                tone="warn"
+              />
+              <PriceTable result={checkoutResult} />
             </div>
           ) : (
             <div className="fd-empty">
@@ -2336,7 +2527,8 @@ function SessionPanel({
   saveDarazLogin,
   resetDarazLogin,
   stopDarazBrowser,
-  message
+  message,
+  messageTone = "info"
 }: {
   darazSession: DarazSession;
   credentials: DarazCredentialStatus;
@@ -2350,6 +2542,7 @@ function SessionPanel({
   checkAllLinks: () => Promise<void>;
   activeJob: PriceCheckJob | undefined;
   message: string;
+  messageTone?: MessageTone;
 }) {
   const isConnected = darazSession.status === "saved";
   const isLive = Boolean(captureId && browserUrl);
@@ -2373,7 +2566,7 @@ function SessionPanel({
         </span>
       </div>
 
-      {message && <div className="fd-alert fd-alert--info">{message}</div>}
+      <StatusBanner message={message} tone={messageTone} />
 
       <div className="fd-session-hero">
         <div className="fd-session-hero-icon">
@@ -3701,7 +3894,7 @@ function CodeBlock({ code }: { code: string }) {
 function PriceTable({ result }: { result: DarazCheckResult }) {
   return (
     <div className="table-wrap">
-      <table>
+      <table className="price-results-table">
         <thead>
           <tr>
             <th>Product</th>
@@ -3741,7 +3934,52 @@ function PriceTable({ result }: { result: DarazCheckResult }) {
   );
 }
 
+function CheckoutSummary({ result }: { result: DarazCheckResult }) {
+  const items = result.priceBreakdown ?? [];
+  if (items.length === 0 && !result.checkoutTotal) {
+    return null;
+  }
+
+  const visibleItems = items.filter((item) => item.kind !== "total");
+  if (visibleItems.length === 0 && result.checkoutTotal) {
+    return (
+      <div className="checkout-summary">
+        <div className="checkout-summary-item checkout-summary-item--total">
+          <span>Verified checkout total</span>
+          <strong>{formatMoney(result.checkoutTotal)}</strong>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="checkout-summary">
+      {visibleItems.map((item) => (
+        <div className={`checkout-summary-item checkout-summary-item--${item.kind}`} key={`${item.kind}-${item.label}-${formatMoney(item.amount)}`}>
+          <span>{displayBreakdownLabel(item)}</span>
+          <strong>{formatMoney(item.amount)}</strong>
+        </div>
+      ))}
+      {result.checkoutTotal && (
+        <div className="checkout-summary-item checkout-summary-item--total">
+          <span>Verified checkout total</span>
+          <strong>{formatMoney(result.checkoutTotal)}</strong>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProductBreakdown({ product }: { product: ProductPrice }) {
+  const hasCheckout = Boolean(product.checkoutUnitPrice || product.checkoutLinePrice || (product.breakdown?.length ?? 0) > 0);
+  if (!hasCheckout) {
+    return (
+      <div className="mini-breakdown mini-breakdown--pending">
+        <span>Checkout not verified yet</span>
+      </div>
+    );
+  }
+
   return (
     <div className="mini-breakdown">
       <div>
@@ -3799,6 +4037,43 @@ function displayBreakdownLabel(item: PriceBreakdownItem) {
     other: "Other charge"
   };
   return item.label || kindLabel[item.kind];
+}
+
+function pickCheckoutResult(latest: DarazCheckResult | undefined, history: DarazCheckResult[]): DarazCheckResult | undefined {
+  const sorted = [...history].sort((a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime());
+  const newestVerified = sorted.find(hasCheckoutDetails);
+  if (!latest) {
+    return newestVerified ?? sorted[0];
+  }
+  if (!hasCheckoutDetails(latest)) {
+    return newestVerified ?? sorted[0] ?? latest;
+  }
+  if (newestVerified && new Date(newestVerified.finishedAt) > new Date(latest.finishedAt)) {
+    return newestVerified;
+  }
+  return latest;
+}
+
+function hasCheckoutDetails(result?: DarazCheckResult): boolean {
+  if (!result) {
+    return false;
+  }
+  return Boolean(
+    result.checkoutTotal
+    || (result.priceBreakdown?.length ?? 0) > 0
+    || result.products.some((product) => product.checkoutUnitPrice || product.checkoutLinePrice || (product.breakdown?.length ?? 0) > 0)
+  );
+}
+
+function findProductCheckout(link: SavedLink, result?: DarazCheckResult): ProductPrice | undefined {
+  if (!result) {
+    return undefined;
+  }
+  const linkUrl = link.url.split("?")[0];
+  return result.products.find((product) => {
+    const productUrl = product.url.split("?")[0];
+    return product.url === link.url || productUrl === linkUrl || product.title === link.title;
+  });
 }
 
 function parseObservedPrice(link: SavedLink): Money | undefined {

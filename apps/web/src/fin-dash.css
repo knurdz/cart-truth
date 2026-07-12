@@ -338,6 +338,8 @@ body.dashboard-mode #root {
   flex-direction: column;
   gap: 20px;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .fd-dash-top {
@@ -359,9 +361,14 @@ body.dashboard-mode #root {
 /* Chart rows — two columns full width */
 .fd-dash-charts {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
   width: 100%;
+  min-width: 0;
+}
+
+.fd-dash-charts > * {
+  min-width: 0;
 }
 
 .fd-dash-charts--single {
@@ -374,9 +381,23 @@ body.dashboard-mode #root {
 
 .fd-dash-bottom {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
   width: 100%;
+  min-width: 0;
+}
+
+.fd-dash-bottom > * {
+  min-width: 0;
+}
+
+/* Products tab — stack panels so wide checkout tables stay in viewport */
+.fd-products-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  width: 100%;
+  min-width: 0;
 }
 
 .fd-dash-recent {
@@ -524,6 +545,10 @@ body.dashboard-mode #root {
   padding: 24px 28px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
   border: 1px solid #f0f2f5;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .fd-chart-card--large {
@@ -536,6 +561,8 @@ body.dashboard-mode #root {
   justify-content: space-between;
   margin-bottom: 16px;
   gap: 16px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .fd-chart-card-title {
@@ -589,7 +616,8 @@ body.dashboard-mode #root {
 
 .fd-chart-svg-wrap {
   width: 100%;
-  overflow: visible;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .fd-chart-legend {
@@ -621,6 +649,10 @@ body.dashboard-mode #root {
   padding: 24px 28px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
   border: 1px solid #f0f2f5;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .fd-panel-card--full {
@@ -633,6 +665,8 @@ body.dashboard-mode #root {
   justify-content: space-between;
   margin-bottom: 20px;
   gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .fd-panel-title {
@@ -640,6 +674,7 @@ body.dashboard-mode #root {
   font-weight: 700;
   color: #111827;
   margin: 0;
+  min-width: 0;
 }
 
 .fd-panel-action {
@@ -662,18 +697,32 @@ body.dashboard-mode #root {
   display: flex;
   flex-direction: column;
   gap: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .fd-contact-row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   padding: 12px 0;
   border-bottom: 1px solid #f3f4f6;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .fd-contact-row:last-child {
   border-bottom: none;
+}
+
+.fd-contact-row > .fd-contact-avatar {
+  flex-shrink: 0;
+}
+
+.fd-contact-row > :not(.fd-contact-info):not(.fd-contact-avatar) {
+  flex-shrink: 0;
 }
 
 .fd-contact-avatar {
@@ -703,17 +752,29 @@ body.dashboard-mode #root {
 }
 
 .fd-contact-info {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow: hidden;
 }
 
 .fd-contact-name {
   font-size: 14px;
   font-weight: 600;
   color: #111827;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.fd-contact-info .fd-link-btn {
+  display: block;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -722,6 +783,11 @@ body.dashboard-mode #root {
 .fd-contact-role {
   font-size: 12px;
   color: #9ca3af;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 /* Status pills */
@@ -847,6 +913,8 @@ body.dashboard-mode #root {
   font-size: 13px;
   font-weight: 700;
   color: #16a34a;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 /* Stat cards */
@@ -962,6 +1030,104 @@ body.dashboard-mode #root {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Checkout / price tables inside dashboard panels */
+.price-results-section {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.fd-panel-card--checkout {
+  overflow: visible;
+}
+
+.price-results-section .table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.dashboard-mode .price-results-section .price-results-table {
+  table-layout: auto;
+  min-width: 720px;
+}
+
+body.dashboard-mode .price-results-section .price-results-table th:nth-child(4),
+body.dashboard-mode .price-results-section .price-results-table td:nth-child(4) {
+  min-width: 180px;
+}
+
+.checkout-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.checkout-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e8ecf1;
+}
+
+.checkout-summary-item span {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.checkout-summary-item strong {
+  font-size: 14px;
+  color: #111827;
+}
+
+.checkout-summary-item--total {
+  background: #eff6ff;
+  border-color: #dbeafe;
+}
+
+.checkout-summary-item--total strong {
+  color: #1d4ed8;
+}
+
+.checkout-summary-item--delivery strong,
+.checkout-summary-item--platform_fee strong,
+.checkout-summary-item--service_fee strong {
+  color: #374151;
+}
+
+.checkout-summary-item--discount strong,
+.checkout-summary-item--voucher strong {
+  color: #16a34a;
+}
+
+.mini-breakdown--pending {
+  color: #9ca3af;
+  font-size: 12px;
+  font-style: italic;
+}
+
+body.dashboard-mode .table-wrap td a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+body.dashboard-mode .table-wrap td small {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+body.dashboard-mode .file-links a {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .fd-admin-stats {
@@ -1057,6 +1223,10 @@ body.dashboard-mode #root {
   display: block;
   margin: 12px auto 0;
   text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Steps list */
@@ -1154,6 +1324,24 @@ body.dashboard-mode #root {
   .fd-api-key-item {
     grid-template-columns: 1fr;
   }
+
+  .fd-contact-row {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+  }
+
+  .fd-contact-info {
+    flex: 1 1 calc(100% - 50px);
+  }
+
+  .fd-dash-bottom .fd-contact-row > .fd-status-pill,
+  .fd-dash-bottom .fd-contact-row > .fd-recent-total {
+    margin-left: auto;
+  }
+
+  .fd-panel-header .fd-header-primary-btn {
+    width: 100%;
+  }
 }
 
 /* ============================================================
@@ -1226,6 +1414,18 @@ body.dashboard-mode #root {
   background: #ecfdf5;
   color: #047857;
   border: 1px solid #d1fae5;
+}
+
+.fd-alert--warn {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.fd-alert--error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
 }
 
 /* Session hero */
