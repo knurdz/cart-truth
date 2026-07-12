@@ -184,8 +184,14 @@ export class DarazService {
       });
       await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
       await page.waitForTimeout(1500);
-      const results = await extractSearchResultsFromPage(page, limit);
-      return results.length > 0 ? results : extractDarazSearchResultsFromHtml(await page.content(), limit);
+      let results = await extractSearchResultsFromPage(page, limit);
+      if (results.length === 0) {
+        results = extractDarazSearchResultsFromHtml(await page.content(), limit);
+      }
+      if (results.length === 0) {
+        return results;
+      }
+      return enrichSearchResultPrices(page, results);
     } finally {
       await browser.close().catch(() => undefined);
     }
@@ -588,8 +594,14 @@ export function extractDarazSearchResultsFromHtml(html: string, limit = 12): Dar
     if (!/daraz\.lk|\/products?\//i.test(rawUrl) && !/Rs\./i.test(body)) {
       continue;
     }
-    const title = stripHtml(body).replace(/\s+/g, " ").trim();
-    const price = parseDarazPrice(body);
+    const struckPrices = Array.from(body.matchAll(/<(?:del|s|strike)\b[^>]*>([\s\S]*?)<\/(?:del|s|strike)>/gi))
+      .map((entry) => stripHtml(entry[1] ?? ""));
+    const title = stripHtml(body)
+      .replace(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const priceText = pickDarazSellingPriceText(body, struckPrices);
+    const price = priceText ? parseDarazPrice(priceText) : undefined;
     if (!title || !price) {
       continue;
     }
@@ -599,11 +611,41 @@ export function extractDarazSearchResultsFromHtml(html: string, limit = 12): Dar
       title: title.slice(0, 180),
       url,
       observedPrice: price,
-      availability: "available"
+      availability: /out of stock|sold out/i.test(body) ? "unavailable" : "available"
     }));
   }
 
   return results;
+}
+
+export function pickDarazSellingPriceText(fullText: string, struckPriceTexts: string[] = []): string | undefined {
+  const struckMinorUnits = new Set(
+    struckPriceTexts
+      .map((text) => parseDarazPrice(text)?.minorUnits)
+      .filter((value): value is number => value !== undefined)
+  );
+  const matches = fullText.match(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi) ?? [];
+  const parsed = matches
+    .map((text) => ({ text, money: parseDarazPrice(text) }))
+    .filter((entry): entry is { text: string; money: Money } => entry.money !== undefined);
+
+  if (parsed.length === 0) {
+    return undefined;
+  }
+  if (parsed.length === 1) {
+    return parsed[0].text;
+  }
+
+  const candidates = parsed.filter((entry) => !struckMinorUnits.has(entry.money.minorUnits ?? 0));
+  if (candidates.length === 1) {
+    return candidates[0].text;
+  }
+  if (candidates.length > 1) {
+    candidates.sort((left, right) => (left.money.minorUnits ?? 0) - (right.money.minorUnits ?? 0));
+    return candidates[0].text;
+  }
+
+  return parsed[parsed.length - 1].text;
 }
 
 export function parseDarazPrice(input: string): Money | undefined {
@@ -1094,19 +1136,78 @@ export function extractDarazCheckoutPricesFromText(text: string, products: Daraz
 
 async function extractSearchResultsFromPage(page: Page, limit: number): Promise<DarazSearchResult[]> {
   const rawResults = await page.evaluate((maxResults) => {
-    const cards = Array.from(document.querySelectorAll('[data-tracking="product-card"], [data-item-id], .Bm3ON, [class*="gridItem"]')).slice(0, maxResults * 2);
+    const cards = Array.from(
+      document.querySelectorAll('[data-tracking="product-card"], [data-item-id], .Bm3ON, [class*="gridItem"]')
+    ).slice(0, maxResults * 2);
+
+    const pickSellingPrice = (card: Element): string | undefined => {
+      const priceRoot = card.querySelector('#id-price, [id="id-price"], [class*="price"]');
+      const struckTexts: string[] = [];
+      const struckNodes = (priceRoot ?? card).querySelectorAll("del, s, strike");
+      for (const node of Array.from(struckNodes)) {
+        const text = (node.textContent ?? "").trim();
+        if (text) {
+          struckTexts.push(text);
+        }
+      }
+
+      const priceCandidates: string[] = [];
+      const priceScope = priceRoot ?? card;
+      for (const node of Array.from(priceScope.querySelectorAll("span, div, strong"))) {
+        if (Array.from(struckNodes).some((struck) => struck.contains(node))) {
+          continue;
+        }
+        const text = (node.textContent ?? "").trim();
+        const match = text.match(/^Rs\.?\s*[\d,]+(?:\.\d{1,2})?$/i);
+        if (match) {
+          priceCandidates.push(match[0]);
+        }
+      }
+
+      if (priceCandidates.length > 0) {
+        return priceCandidates[priceCandidates.length - 1];
+      }
+
+      const fullText = (priceScope.textContent ?? "").replace(/\s+/g, " ").trim();
+      const allMatches = fullText.match(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi) ?? [];
+      if (allMatches.length === 0) {
+        return undefined;
+      }
+      if (allMatches.length === 1) {
+        return allMatches[0];
+      }
+
+      const struckValues = new Set(
+        struckTexts
+          .flatMap((text) => text.match(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi) ?? [])
+      );
+      const remaining = allMatches.filter((value) => !struckValues.has(value));
+      if (remaining.length === 1) {
+        return remaining[0];
+      }
+      if (remaining.length > 1) {
+        return remaining[remaining.length - 1];
+      }
+      return allMatches[allMatches.length - 1];
+    };
+
     return cards.map((card, index) => {
-      const anchor = card.querySelector('a[href]') as HTMLAnchorElement | null;
-      const image = card.querySelector('img') as HTMLImageElement | null;
+      const anchor = card.querySelector('a[href*="/products/"], a[href*="daraz.lk"]') as HTMLAnchorElement | null
+        ?? card.querySelector("a[href]") as HTMLAnchorElement | null;
+      const image = card.querySelector("img") as HTMLImageElement | null;
+      const titleElement = card.querySelector('#id-title, [id="id-title"]');
       const text = card.textContent ?? "";
-      const priceMatch = text.match(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/i);
-      const title = (anchor?.getAttribute("title") || anchor?.textContent || text.replace(priceMatch?.[0] ?? "", "")).replace(/\s+/g, " ").trim();
+      const title = (titleElement?.textContent || anchor?.getAttribute("title") || anchor?.textContent || text)
+        .replace(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
       return {
         id: card.getAttribute("data-item-id") || card.getAttribute("data-sku-simple") || String(index),
         title,
         url: anchor?.href,
         imageUrl: image?.src,
-        priceText: priceMatch?.[0],
+        priceText: pickSellingPrice(card),
         availability: /out of stock|sold out/i.test(text) ? "unavailable" : "available"
       };
     });
@@ -1120,25 +1221,81 @@ async function extractSearchResultsFromPage(page: Page, limit: number): Promise<
 
     return [DarazSearchResultSchema.parse({
       id: item.id || makeDarazId(item.url, index),
-      title: item.title,
-      url: item.url,
+      title: cleanProductTitle(item.title),
+      url: normalizeDarazProductUrl(item.url),
       observedPrice,
       availability: item.availability,
-      ...(item.imageUrl ? { imageUrl: item.imageUrl } : {})
+      ...(item.imageUrl ? { imageUrl: cleanImageUrl(item.imageUrl) } : {})
     })];
   }).slice(0, limit);
 }
 
+async function enrichSearchResultPrices(page: Page, results: DarazSearchResult[]): Promise<DarazSearchResult[]> {
+  const enriched: DarazSearchResult[] = [];
+
+  for (const result of results) {
+    try {
+      await page.goto(result.url, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => undefined);
+      await page.waitForTimeout(600);
+      const product = await extractProductFromPage(page, result.url);
+      if (product?.observedPrice) {
+        enriched.push({
+          ...result,
+          title: product.title || result.title,
+          observedPrice: product.observedPrice,
+          availability: product.availability ?? result.availability,
+          ...(product.imageUrl ? { imageUrl: product.imageUrl } : result.imageUrl ? { imageUrl: result.imageUrl } : {})
+        });
+        continue;
+      }
+    } catch {
+      // Keep catalog price when product page lookup fails.
+    }
+    enriched.push(result);
+  }
+
+  return enriched;
+}
+
 async function extractProductFromPage(page: Page, url: string): Promise<DarazSearchResult | undefined> {
   const raw = await page.evaluate(() => {
-    const titleElement = document.querySelector(".pdp-mod-product-badge-title, h1, [data-spm='product_title']");
-    const priceElement = document.querySelector(".pdp-price, .pdp-product-price, [class*='pdp-price'], [class*='price']");
+    const titleElement = document.querySelector(".pdp-mod-product-badge-title, h1, [data-spm='product_title'], #id-title, [id='id-title']");
+    const priceRoot = document.querySelector(
+      ".pdp-mod-product-price, .pdp-product-price, .pdp-price, [class*='pdp-price'], #id-price, [id='id-price']"
+    );
     const imageElement = document.querySelector("meta[property='og:image'], meta[name='twitter:image'], img") as HTMLMetaElement | HTMLImageElement | null;
     const metaTitle = document.querySelector("meta[property='og:title'], meta[name='twitter:title']") as HTMLMetaElement | null;
     const text = document.body?.textContent ?? "";
+
+    const struckNodes = (priceRoot ?? document.body)?.querySelectorAll("del, s, strike") ?? [];
+    const struckTexts = Array.from(struckNodes).map((node) => (node.textContent ?? "").trim()).filter(Boolean);
+    const priceCandidates: string[] = [];
+
+    if (priceRoot) {
+      for (const node of Array.from(priceRoot.querySelectorAll("span, div, strong"))) {
+        if (Array.from(struckNodes).some((struck) => struck.contains(node))) {
+          continue;
+        }
+        const nodeText = (node.textContent ?? "").trim();
+        const match = nodeText.match(/^Rs\.?\s*[\d,]+(?:\.\d{1,2})?$/i);
+        if (match) {
+          priceCandidates.push(match[0]);
+        }
+      }
+    }
+
+    const fallbackText = (priceRoot?.textContent || text).replace(/\s+/g, " ").trim();
+    const fallbackMatches = fallbackText.match(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi) ?? [];
+    const priceText = priceCandidates.length > 0
+      ? priceCandidates[priceCandidates.length - 1]
+      : fallbackMatches.length > 1
+        ? fallbackMatches.filter((value) => !struckTexts.some((struck) => struck.includes(value))).slice(-1)[0] ?? fallbackMatches[fallbackMatches.length - 1]
+        : fallbackMatches[0] ?? "";
+
     return {
       title: (titleElement?.textContent || metaTitle?.content || document.title || "").replace(/\s+/g, " ").trim(),
-      priceText: (priceElement?.textContent || text.match(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/i)?.[0] || "").replace(/\s+/g, " ").trim(),
+      priceText,
       imageUrl: imageElement instanceof HTMLMetaElement ? imageElement.content : imageElement?.src,
       text
     };

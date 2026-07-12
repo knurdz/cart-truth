@@ -1849,11 +1849,13 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
     const query = darazQuery.trim();
     if (!query) return;
     setSearchingDaraz(true);
+    setSearchResults([]);
+    setSelectedSearchProduct(undefined);
+    setProductUrl("");
     clearMessage();
     try {
       const response = await postJson<{ results: DarazSearchResult[] }>("/api/daraz/search", { query });
       setSearchResults(response.results);
-      setSelectedSearchProduct(undefined);
       if (response.results.length === 0) {
         setMessage("No products found. Try a different search.", "warn");
       }
@@ -2314,6 +2316,12 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
                         placeholder="Search Daraz products"
                         className="modal-input"
                         disabled={addingLink || searchingDaraz}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void searchDarazProducts();
+                          }
+                        }}
                       />
                       <button
                         type="button"
@@ -2324,33 +2332,67 @@ function Dashboard({ user, onLogout, onNavigate }: { user: AppUser; onLogout: ()
                         {searchingDaraz ? "Searching…" : "Search"}
                       </button>
                     </div>
-                    {searchResults.length > 0 && (
-                      <div className="modal-search-results">
-                        {searchResults.map((product) => (
-                          <button
-                            key={product.url}
-                            type="button"
-                            className={`modal-search-result ${selectedSearchProduct?.url === product.url ? "modal-search-result--selected" : ""}`}
-                            disabled={addingLink}
-                            onClick={() => selectSearchProduct(product)}
-                          >
-                            {product.imageUrl ? (
-                              <img src={product.imageUrl} alt="" className="modal-search-result-image" />
-                            ) : (
-                              <div className="modal-search-result-image modal-search-result-image--placeholder" />
-                            )}
-                            <div className="modal-search-result-body">
-                              <strong>{product.title}</strong>
-                              <span>{formatMoney(product.observedPrice)}</span>
-                            </div>
-                          </button>
+                    {searchingDaraz && (
+                      <>
+                        <p className="modal-search-status">Fetching real prices from Daraz product pages…</p>
+                        <div className="modal-search-results modal-search-results--grid">
+                        {Array.from({ length: 6 }, (_, index) => (
+                          <div key={`skeleton-${index}`} className="modal-search-skeleton" aria-hidden="true">
+                            <div className="modal-search-skeleton-image" />
+                            <div className="modal-search-skeleton-line modal-search-skeleton-line--title" />
+                            <div className="modal-search-skeleton-line modal-search-skeleton-line--short" />
+                            <div className="modal-search-skeleton-price" />
+                          </div>
                         ))}
+                        </div>
+                      </>
+                    )}
+                    {!searchingDaraz && searchResults.length > 0 && (
+                      <div className="modal-search-results modal-search-results--grid">
+                        {searchResults.map((product) => {
+                          const selected = selectedSearchProduct?.url === product.url;
+                          return (
+                            <button
+                              key={product.url}
+                              type="button"
+                              className={`modal-search-card ${selected ? "modal-search-card--selected" : ""}`}
+                              disabled={addingLink}
+                              onClick={() => selectSearchProduct(product)}
+                            >
+                              <div className="modal-search-card-media">
+                                {product.imageUrl ? (
+                                  <img src={product.imageUrl} alt="" className="modal-search-card-image" />
+                                ) : (
+                                  <div className="modal-search-card-image modal-search-card-image--placeholder" />
+                                )}
+                                {selected && (
+                                  <span className="modal-search-card-check" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" width="14" height="14">
+                                      <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                  </span>
+                                )}
+                              </div>
+                              <div className="modal-search-card-body">
+                                <p className="modal-search-card-title">{product.title}</p>
+                                <div className="modal-search-card-meta">
+                                  <span className="modal-search-card-price">{formatMoney(product.observedPrice)}</span>
+                                  {product.availability === "unavailable" && (
+                                    <span className="modal-search-card-badge">Out of stock</span>
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
-                    {selectedSearchProduct && (
-                      <p className="modal-selected-product">
-                        Selected: <strong>{selectedSearchProduct.title}</strong>
-                      </p>
+                    {!searchingDaraz && selectedSearchProduct && (
+                      <div className="modal-selected-product">
+                        <span className="modal-selected-product-label">Selected product</span>
+                        <strong>{selectedSearchProduct.title}</strong>
+                        <span>{formatMoney(selectedSearchProduct.observedPrice)}</span>
+                      </div>
                     )}
                   </>
                 )}

@@ -14,7 +14,8 @@ import {
   extractDarazCheckoutPricesFromText,
   extractDarazSearchResultsFromHtml,
   normalizeDarazProductUrl,
-  parseDarazPrice
+  parseDarazPrice,
+  pickDarazSellingPriceText
 } from "@carttruth/adapters";
 
 const tempDirs: string[] = [];
@@ -28,11 +29,17 @@ describe("Daraz helpers", () => {
     expect(parseDarazPrice("Rs. 1,234")).toEqual({ currency: "LKR", minorUnits: 123400 });
   });
 
+  it("prefers selling price over struck-through list price", () => {
+    expect(pickDarazSellingPriceText("Rs. 50,000 Rs. 35,999", ["Rs. 50,000"])).toBe("Rs. 35,999");
+    expect(pickDarazSellingPriceText("Rs. 50,000 Rs. 35,999")).toBe("Rs. 35,999");
+  });
+
   it("extracts search cards from fixture HTML", () => {
     const results = extractDarazSearchResultsFromHtml(`
       <a href="/products/sample-i123-s456.html">
         <img src="https://example.com/image.jpg" />
         Sample Daraz Product
+        <del>Rs. 3,200</del>
         <span>Rs. 2,500</span>
       </a>
     `);
