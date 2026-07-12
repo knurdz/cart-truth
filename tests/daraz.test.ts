@@ -8,6 +8,8 @@ import {
   buildDarazCheckoutExtractionScript,
   buildDarazCartIsolationScript,
   buildDarazCartVerificationScript,
+  buildDarazProductPageExtractionScript,
+  buildDarazSearchResultsExtractionScript,
   darazProfilePath,
   darazProfileReadyPath,
   extractDarazProductFromHtml,
@@ -208,6 +210,8 @@ describe("Daraz helpers", () => {
     expect(buildDarazCartIsolationScript(productKeys)).not.toContain("__name");
     expect(buildDarazCartVerificationScript(productKeys)).not.toContain("__name");
     expect(buildDarazCheckoutExtractionScript(productKeys)).not.toContain("__name");
+    expect(buildDarazSearchResultsExtractionScript(12)).not.toContain("__name");
+    expect(buildDarazProductPageExtractionScript()).not.toContain("__name");
     expect(buildDarazCartVerificationScript(productKeys)).toContain("unmatchedSelectedRows");
     expect(buildDarazCartVerificationScript(productKeys)).toContain("checked_non_product_control");
     expect(buildDarazCartIsolationScript(productKeys)).toContain("quantityAdjustments");

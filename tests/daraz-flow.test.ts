@@ -1105,6 +1105,12 @@ class FakeDarazPage {
     if (typeof script === "function") {
       return this.nextMock(this.options.functionEvaluate);
     }
+    if (typeof script === "string" && script.includes("pickSellingPrice")) {
+      return this.nextMock(this.options.functionEvaluate) ?? [];
+    }
+    if (typeof script === "string" && script.includes("pdp-mod-product-badge-title")) {
+      return this.nextMock(this.options.functionEvaluate);
+    }
     if (this.state.url.includes("checkout.daraz.lk/shipping") && typeof script === "string" && script.includes("priceTexts")) {
       return this.nextMock(this.options.checkoutExtraction ?? { rows: [] });
     }

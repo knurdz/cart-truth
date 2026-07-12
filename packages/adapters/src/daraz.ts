@@ -1134,31 +1134,27 @@ export function extractDarazCheckoutPricesFromText(text: string, products: Daraz
   };
 }
 
-async function extractSearchResultsFromPage(page: Page, limit: number): Promise<DarazSearchResult[]> {
-  const rawResults = await page.evaluate((maxResults) => {
-    const cards = Array.from(
-      document.querySelectorAll('[data-tracking="product-card"], [data-item-id], .Bm3ON, [class*="gridItem"]')
-    ).slice(0, maxResults * 2);
-
-    const pickSellingPrice = (card: Element): string | undefined => {
+export function buildDarazSearchResultsExtractionScript(maxResults: number): string {
+  return `(() => {
+    const pickSellingPrice = (card) => {
       const priceRoot = card.querySelector('#id-price, [id="id-price"], [class*="price"]');
-      const struckTexts: string[] = [];
-      const struckNodes = (priceRoot ?? card).querySelectorAll("del, s, strike");
+      const struckTexts = [];
+      const struckNodes = (priceRoot || card).querySelectorAll("del, s, strike");
       for (const node of Array.from(struckNodes)) {
-        const text = (node.textContent ?? "").trim();
+        const text = (node.textContent || "").trim();
         if (text) {
           struckTexts.push(text);
         }
       }
 
-      const priceCandidates: string[] = [];
-      const priceScope = priceRoot ?? card;
+      const priceCandidates = [];
+      const priceScope = priceRoot || card;
       for (const node of Array.from(priceScope.querySelectorAll("span, div, strong"))) {
         if (Array.from(struckNodes).some((struck) => struck.contains(node))) {
           continue;
         }
-        const text = (node.textContent ?? "").trim();
-        const match = text.match(/^Rs\.?\s*[\d,]+(?:\.\d{1,2})?$/i);
+        const text = (node.textContent || "").trim();
+        const match = text.match(/^Rs\\.?\\s*[\\d,]+(?:\\.\\d{1,2})?$/i);
         if (match) {
           priceCandidates.push(match[0]);
         }
@@ -1168,8 +1164,8 @@ async function extractSearchResultsFromPage(page: Page, limit: number): Promise<
         return priceCandidates[priceCandidates.length - 1];
       }
 
-      const fullText = (priceScope.textContent ?? "").replace(/\s+/g, " ").trim();
-      const allMatches = fullText.match(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi) ?? [];
+      const fullText = (priceScope.textContent || "").replace(/\\s+/g, " ").trim();
+      const allMatches = fullText.match(/Rs\\.?\\s*[\\d,]+(?:\\.\\d{1,2})?/gi) || [];
       if (allMatches.length === 0) {
         return undefined;
       }
@@ -1178,8 +1174,7 @@ async function extractSearchResultsFromPage(page: Page, limit: number): Promise<
       }
 
       const struckValues = new Set(
-        struckTexts
-          .flatMap((text) => text.match(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi) ?? [])
+        struckTexts.flatMap((text) => text.match(/Rs\\.?\\s*[\\d,]+(?:\\.\\d{1,2})?/gi) || [])
       );
       const remaining = allMatches.filter((value) => !struckValues.has(value));
       if (remaining.length === 1) {
@@ -1191,27 +1186,86 @@ async function extractSearchResultsFromPage(page: Page, limit: number): Promise<
       return allMatches[allMatches.length - 1];
     };
 
+    const cards = Array.from(
+      document.querySelectorAll('[data-tracking="product-card"], [data-item-id], .Bm3ON, [class*="gridItem"]')
+    ).slice(0, ${maxResults} * 2);
+
     return cards.map((card, index) => {
-      const anchor = card.querySelector('a[href*="/products/"], a[href*="daraz.lk"]') as HTMLAnchorElement | null
-        ?? card.querySelector("a[href]") as HTMLAnchorElement | null;
-      const image = card.querySelector("img") as HTMLImageElement | null;
+      const anchor = card.querySelector('a[href*="/products/"], a[href*="daraz.lk"]')
+        || card.querySelector("a[href]");
+      const image = card.querySelector("img");
       const titleElement = card.querySelector('#id-title, [id="id-title"]');
-      const text = card.textContent ?? "";
-      const title = (titleElement?.textContent || anchor?.getAttribute("title") || anchor?.textContent || text)
-        .replace(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi, "")
-        .replace(/\s+/g, " ")
+      const text = card.textContent || "";
+      const title = (titleElement && titleElement.textContent || anchor && anchor.getAttribute("title") || anchor && anchor.textContent || text)
+        .replace(/Rs\\.?\\s*[\\d,]+(?:\\.\\d{1,2})?/gi, "")
+        .replace(/\\s+/g, " ")
         .trim();
 
       return {
         id: card.getAttribute("data-item-id") || card.getAttribute("data-sku-simple") || String(index),
         title,
-        url: anchor?.href,
-        imageUrl: image?.src,
+        url: anchor && anchor.href,
+        imageUrl: image && image.src,
         priceText: pickSellingPrice(card),
         availability: /out of stock|sold out/i.test(text) ? "unavailable" : "available"
       };
     });
-  }, limit);
+  })()`;
+}
+
+export function buildDarazProductPageExtractionScript(): string {
+  return `(() => {
+    const titleElement = document.querySelector(".pdp-mod-product-badge-title, h1, [data-spm='product_title'], #id-title, [id='id-title']");
+    const priceRoot = document.querySelector(
+      ".pdp-mod-product-price, .pdp-product-price, .pdp-price, [class*='pdp-price'], #id-price, [id='id-price']"
+    );
+    const imageElement = document.querySelector("meta[property='og:image'], meta[name='twitter:image'], img");
+    const metaTitle = document.querySelector("meta[property='og:title'], meta[name='twitter:title']");
+    const text = document.body && document.body.textContent || "";
+
+    const struckNodes = (priceRoot || document.body) ? (priceRoot || document.body).querySelectorAll("del, s, strike") : [];
+    const struckTexts = Array.from(struckNodes).map((node) => (node.textContent || "").trim()).filter(Boolean);
+    const priceCandidates = [];
+
+    if (priceRoot) {
+      for (const node of Array.from(priceRoot.querySelectorAll("span, div, strong"))) {
+        if (Array.from(struckNodes).some((struck) => struck.contains(node))) {
+          continue;
+        }
+        const nodeText = (node.textContent || "").trim();
+        const match = nodeText.match(/^Rs\\.?\\s*[\\d,]+(?:\\.\\d{1,2})?$/i);
+        if (match) {
+          priceCandidates.push(match[0]);
+        }
+      }
+    }
+
+    const fallbackText = ((priceRoot && priceRoot.textContent) || text).replace(/\\s+/g, " ").trim();
+    const fallbackMatches = fallbackText.match(/Rs\\.?\\s*[\\d,]+(?:\\.\\d{1,2})?/gi) || [];
+    const priceText = priceCandidates.length > 0
+      ? priceCandidates[priceCandidates.length - 1]
+      : fallbackMatches.length > 1
+        ? (fallbackMatches.filter((value) => !struckTexts.some((struck) => struck.includes(value))).slice(-1)[0] || fallbackMatches[fallbackMatches.length - 1])
+        : (fallbackMatches[0] || "");
+
+    return {
+      title: ((titleElement && titleElement.textContent) || (metaTitle && metaTitle.content) || document.title || "").replace(/\\s+/g, " ").trim(),
+      priceText,
+      imageUrl: imageElement && imageElement.tagName === "META" ? imageElement.content : imageElement && imageElement.src,
+      text
+    };
+  })()`;
+}
+
+async function extractSearchResultsFromPage(page: Page, limit: number): Promise<DarazSearchResult[]> {
+  const rawResults = (await page.evaluate(buildDarazSearchResultsExtractionScript(limit)) ?? []) as Array<{
+    id: string;
+    title: string;
+    url?: string;
+    imageUrl?: string;
+    priceText?: string;
+    availability: string;
+  }>;
 
   return rawResults.flatMap((item, index) => {
     const observedPrice = item.priceText ? parseDarazPrice(item.priceText) : undefined;
@@ -1259,47 +1313,12 @@ async function enrichSearchResultPrices(page: Page, results: DarazSearchResult[]
 }
 
 async function extractProductFromPage(page: Page, url: string): Promise<DarazSearchResult | undefined> {
-  const raw = await page.evaluate(() => {
-    const titleElement = document.querySelector(".pdp-mod-product-badge-title, h1, [data-spm='product_title'], #id-title, [id='id-title']");
-    const priceRoot = document.querySelector(
-      ".pdp-mod-product-price, .pdp-product-price, .pdp-price, [class*='pdp-price'], #id-price, [id='id-price']"
-    );
-    const imageElement = document.querySelector("meta[property='og:image'], meta[name='twitter:image'], img") as HTMLMetaElement | HTMLImageElement | null;
-    const metaTitle = document.querySelector("meta[property='og:title'], meta[name='twitter:title']") as HTMLMetaElement | null;
-    const text = document.body?.textContent ?? "";
-
-    const struckNodes = (priceRoot ?? document.body)?.querySelectorAll("del, s, strike") ?? [];
-    const struckTexts = Array.from(struckNodes).map((node) => (node.textContent ?? "").trim()).filter(Boolean);
-    const priceCandidates: string[] = [];
-
-    if (priceRoot) {
-      for (const node of Array.from(priceRoot.querySelectorAll("span, div, strong"))) {
-        if (Array.from(struckNodes).some((struck) => struck.contains(node))) {
-          continue;
-        }
-        const nodeText = (node.textContent ?? "").trim();
-        const match = nodeText.match(/^Rs\.?\s*[\d,]+(?:\.\d{1,2})?$/i);
-        if (match) {
-          priceCandidates.push(match[0]);
-        }
-      }
-    }
-
-    const fallbackText = (priceRoot?.textContent || text).replace(/\s+/g, " ").trim();
-    const fallbackMatches = fallbackText.match(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi) ?? [];
-    const priceText = priceCandidates.length > 0
-      ? priceCandidates[priceCandidates.length - 1]
-      : fallbackMatches.length > 1
-        ? fallbackMatches.filter((value) => !struckTexts.some((struck) => struck.includes(value))).slice(-1)[0] ?? fallbackMatches[fallbackMatches.length - 1]
-        : fallbackMatches[0] ?? "";
-
-    return {
-      title: (titleElement?.textContent || metaTitle?.content || document.title || "").replace(/\s+/g, " ").trim(),
-      priceText,
-      imageUrl: imageElement instanceof HTMLMetaElement ? imageElement.content : imageElement?.src,
-      text
-    };
-  });
+  const raw = await page.evaluate(buildDarazProductPageExtractionScript()) as {
+    title: string;
+    priceText: string;
+    imageUrl?: string;
+    text: string;
+  };
 
   const observedPrice = parseDarazPrice(raw.priceText);
   const title = cleanProductTitle(raw.title);
