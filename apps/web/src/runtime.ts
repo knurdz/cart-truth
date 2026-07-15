@@ -22,6 +22,16 @@ import {
   type ProxyProfile
 } from "@carttruth/schemas";
 import {
+  detectProductChange,
+  dispatchPriceChangeReport,
+  isAllowedWebhookUrl,
+  maskWebhookHost,
+  type ChannelTarget,
+  type NotificationChannelConfig,
+  type NotificationPlatform,
+  type ProductChange
+} from "@carttruth/notifications";
+import {
   DarazService,
   launchDarazPersistentContext,
   repairDarazProfileLock,
@@ -35,7 +45,7 @@ import {
   validateDarazSessionPage,
   type DarazSessionMetadata
 } from "@carttruth/adapters";
-import { createGoogleOAuthClientFromEnv, decryptSecret, googleAdminEmails, roleForGoogleEmail, type GoogleOAuthClient } from "./auth.js";
+import { createGoogleOAuthClientFromEnv, decryptSecret, encryptSecret, googleAdminEmails, roleForGoogleEmail, type GoogleOAuthClient } from "./auth.js";
 import { loadProjectEnv } from "./env.js";
 import {
   AppStore,
@@ -44,6 +54,8 @@ import {
   type AppNotification,
   type AppUser,
   type NotificationKind,
+  type NotificationChannel,
+  type NotificationChannelRecord,
   type PriceCheckJob,
   type PriceCheckJobSource,
   type ProxyEventSource,
@@ -238,6 +250,75 @@ export class LocalRuntime {
 
   markAllNotificationsRead(userId: string): number {
     return this.store.markAllNotificationsRead(userId);
+  }
+
+  listNotificationChannels(userId: string): NotificationChannel[] {
+    return this.store.listNotificationChannels(userId).map((record) => this.publicNotificationChannel(record));
+  }
+
+  createNotificationChannel(userId: string, input: {
+    platform: NotificationPlatform;
+    label?: string;
+    webhookUrl?: string;
+    botToken?: string;
+    chatId?: string;
+  }): NotificationChannel {
+    const encryptedConfig = encryptSecret(JSON.stringify(this.buildNotificationChannelConfig(input)));
+    const record = this.store.createNotificationChannel({
+      userId,
+      platform: input.platform,
+      ...(input.label ? { label: input.label } : {}),
+      encryptedConfig
+    });
+    return this.publicNotificationChannel(record);
+  }
+
+  updateNotificationChannel(userId: string, channelId: string, input: {
+    label?: string | null;
+    enabled?: boolean;
+    webhookUrl?: string;
+    botToken?: string;
+    chatId?: string;
+  }): NotificationChannel | undefined {
+    const current = this.store.getNotificationChannel(userId, channelId);
+    if (!current) {
+      return undefined;
+    }
+    const encryptedConfig = input.webhookUrl || input.botToken || input.chatId
+      ? encryptSecret(JSON.stringify(this.buildNotificationChannelConfig({
+          platform: current.platform,
+          ...(input.webhookUrl ? { webhookUrl: input.webhookUrl } : {}),
+          ...(input.botToken ? { botToken: input.botToken } : {}),
+          ...(input.chatId ? { chatId: input.chatId } : {})
+        }, this.decryptNotificationChannelConfig(current))))
+      : undefined;
+    const record = this.store.updateNotificationChannel(userId, channelId, {
+      ...(input.label !== undefined ? { label: input.label } : {}),
+      ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      ...(encryptedConfig ? { encryptedConfig } : {})
+    });
+    return record ? this.publicNotificationChannel(record) : undefined;
+  }
+
+  deleteNotificationChannel(userId: string, channelId: string): void {
+    this.store.deleteNotificationChannel(userId, channelId);
+  }
+
+  async testNotificationChannel(userId: string, channelId: string): Promise<{ ok: boolean; error?: string }> {
+    const record = this.store.getNotificationChannel(userId, channelId);
+    if (!record) {
+      throw new Error("Notification channel not found.");
+    }
+    const target = this.channelTargetFromRecord(record);
+    const results = await dispatchPriceChangeReport([target], { changes: [], isTest: true });
+    const result = results[0];
+    if (!result) {
+      throw new Error("Notification delivery did not run.");
+    }
+    this.store.touchNotificationChannelDelivery(channelId, {
+      ...(result.ok ? { lastDeliveryAt: new Date().toISOString(), lastError: null } : { lastError: result.error ?? "Delivery failed." })
+    });
+    return { ok: result.ok, ...(result.error ? { error: result.error } : {}) };
   }
 
   notifyAdminsOfContactMessage(subject: string, content: string): void {
@@ -692,7 +773,27 @@ export class LocalRuntime {
   }
 
   private updateSavedLinksFromResult(userId: string, result: DarazCheckResult): void {
+    const changes: ProductChange[] = [];
     for (const product of result.products) {
+      const existing = this.store.getSavedLinkByUrl(userId, product.url);
+      if (!existing) {
+        continue;
+      }
+      const previousPrice = existing.observedPriceJson
+        ? JSON.parse(existing.observedPriceJson) as NonNullable<DarazSearchResult["observedPrice"]>
+        : undefined;
+      const change = detectProductChange({
+        linkId: existing.id,
+        title: product.title,
+        url: product.url,
+        ...(previousPrice ? { previousPrice } : {}),
+        ...(product.observedPrice ? { newPrice: product.observedPrice } : {}),
+        ...(existing.availability ? { previousAvailability: existing.availability } : {}),
+        newAvailability: product.status
+      });
+      if (change) {
+        changes.push(change);
+      }
       this.store.updateSavedLinkProduct(userId, {
         id: product.url,
         title: product.title,
@@ -701,6 +802,127 @@ export class LocalRuntime {
         availability: product.status
       });
     }
+    if (changes.length > 0) {
+      this.notifyProductChanges(userId, changes);
+    }
+  }
+
+  private notifyProductChanges(userId: string, changes: ProductChange[]): void {
+    const summary = changes.length === 1
+      ? `Product update: ${changes[0]!.title}`
+      : `${changes.length} tracked products updated`;
+    const body = changes.map((change) => {
+      const parts = [change.title];
+      if (change.previousPrice || change.newPrice) {
+        parts.push(`price changed`);
+      }
+      if (change.previousAvailability || change.newAvailability) {
+        parts.push(`stock changed`);
+      }
+      return parts.join(" — ");
+    }).join("; ");
+    this.store.createNotification({
+      userId,
+      kind: "info",
+      title: summary,
+      body
+    });
+    void this.dispatchPriceChangeReports(userId, changes);
+  }
+
+  private async dispatchPriceChangeReports(userId: string, changes: ProductChange[]): Promise<void> {
+    const records = this.store.listEnabledNotificationChannels(userId);
+    if (records.length === 0) {
+      return;
+    }
+    const targets = records.map((record) => this.channelTargetFromRecord(record));
+    const results = await dispatchPriceChangeReport(targets, { changes });
+    for (const result of results) {
+      this.store.touchNotificationChannelDelivery(result.channelId, {
+        ...(result.ok
+          ? { lastDeliveryAt: new Date().toISOString(), lastError: null }
+          : { lastError: result.error ?? "Delivery failed." })
+      });
+    }
+    this.logger.info("price change reports dispatched", {
+      userId,
+      changeCount: changes.length,
+      channelCount: records.length,
+      delivered: results.filter((result) => result.ok).length,
+      failed: results.filter((result) => !result.ok).length
+    });
+  }
+
+  private publicNotificationChannel(record: NotificationChannelRecord): NotificationChannel {
+    const config = this.decryptNotificationChannelConfig(record);
+    const webhookHost = "webhookUrl" in config ? maskWebhookHost(config.webhookUrl) : record.platform === "telegram" ? "api.telegram.org" : undefined;
+    return {
+      id: record.id,
+      userId: record.userId,
+      platform: record.platform,
+      ...(record.label ? { label: record.label } : {}),
+      enabled: record.enabled,
+      configured: true,
+      ...(webhookHost ? { webhookHost } : {}),
+      ...(record.lastDeliveryAt ? { lastDeliveryAt: record.lastDeliveryAt } : {}),
+      ...(record.lastError ? { lastError: record.lastError } : {}),
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt
+    };
+  }
+
+  private channelTargetFromRecord(record: NotificationChannelRecord): ChannelTarget {
+    return {
+      channelId: record.id,
+      platform: record.platform,
+      config: this.decryptNotificationChannelConfig(record)
+    };
+  }
+
+  private decryptNotificationChannelConfig(record: NotificationChannelRecord): NotificationChannelConfig {
+    const parsed = JSON.parse(decryptSecret(record.encryptedConfig)) as NotificationChannelConfig;
+    if (record.platform === "telegram") {
+      const config = parsed as { botToken?: string; chatId?: string };
+      if (!config.botToken || !config.chatId) {
+        throw new Error("Telegram channel configuration is incomplete.");
+      }
+      return { botToken: config.botToken, chatId: config.chatId };
+    }
+    const config = parsed as { webhookUrl?: string };
+    if (!config.webhookUrl) {
+      throw new Error(`${record.platform} channel configuration is incomplete.`);
+    }
+    return { webhookUrl: config.webhookUrl };
+  }
+
+  private buildNotificationChannelConfig(
+    input: {
+      platform: NotificationPlatform;
+      webhookUrl?: string;
+      botToken?: string;
+      chatId?: string;
+    },
+    existing?: NotificationChannelConfig
+  ): NotificationChannelConfig {
+    if (input.platform === "telegram") {
+      const botToken = input.botToken ?? ("botToken" in (existing ?? {}) ? (existing as { botToken: string }).botToken : undefined);
+      const chatId = input.chatId ?? ("chatId" in (existing ?? {}) ? (existing as { chatId: string }).chatId : undefined);
+      if (!botToken || !chatId) {
+        throw new Error("Telegram requires a bot token and chat ID.");
+      }
+      if (!/^-?\d+$/.test(chatId)) {
+        throw new Error("Telegram chat ID must be numeric.");
+      }
+      return { botToken, chatId };
+    }
+    const webhookUrl = input.webhookUrl ?? ("webhookUrl" in (existing ?? {}) ? (existing as { webhookUrl: string }).webhookUrl : undefined);
+    if (!webhookUrl) {
+      throw new Error(`${input.platform} requires a webhook URL.`);
+    }
+    if (!isAllowedWebhookUrl(webhookUrl)) {
+      throw new Error("Webhook URL is not from an allowed Slack or Discord host.");
+    }
+    return { webhookUrl };
   }
 
   private async withProxyTelemetry<T>(

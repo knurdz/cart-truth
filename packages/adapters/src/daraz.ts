@@ -633,19 +633,19 @@ export function pickDarazSellingPriceText(fullText: string, struckPriceTexts: st
     return undefined;
   }
   if (parsed.length === 1) {
-    return parsed[0].text;
+    return parsed[0]!.text;
   }
 
   const candidates = parsed.filter((entry) => !struckMinorUnits.has(entry.money.minorUnits ?? 0));
   if (candidates.length === 1) {
-    return candidates[0].text;
+    return candidates[0]!.text;
   }
   if (candidates.length > 1) {
     candidates.sort((left, right) => (left.money.minorUnits ?? 0) - (right.money.minorUnits ?? 0));
-    return candidates[0].text;
+    return candidates[0]!.text;
   }
 
-  return parsed[parsed.length - 1].text;
+  return parsed[parsed.length - 1]!.text;
 }
 
 export function parseDarazPrice(input: string): Money | undefined {

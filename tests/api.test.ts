@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApiApp } from "../apps/web/src/api.js";
 import { LocalRuntime, nextScheduledPriceCheckAt, type DarazAutoLoginAttempt, type DarazSessionCaptureManager } from "../apps/web/src/runtime.js";
 import type { GoogleIdentity, GoogleOAuthClient } from "../apps/web/src/auth.js";
@@ -687,6 +687,41 @@ describe("Contact Form Messages", () => {
     const listResultAfter = await get("/api/admin/messages");
     const goneMsg = listResultAfter.messages.find((m: any) => m.id === createdMsg.id);
     expect(goneMsg).toBeUndefined();
+  });
+});
+
+describe("Notification channels API", () => {
+  it("rejects invalid webhook hosts", async () => {
+    const response = await postRaw("/api/notification-channels", {
+      platform: "slack",
+      webhookUrl: "https://example.com/hook"
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("creates, lists, updates, tests, and deletes channels", async () => {
+    const createdResponse = await postRaw("/api/notification-channels", {
+      platform: "slack",
+      label: "#deals",
+      webhookUrl: "https://hooks.slack.com/services/T00/B00/xxxxx"
+    });
+    expect(createdResponse.status).toBe(201);
+    const created = await createdResponse.json();
+    expect(created.channel.platform).toBe("slack");
+    expect(created.channel.label).toBe("#deals");
+    expect(created.channel.configured).toBe(true);
+
+    const listed = await get("/api/notification-channels");
+    expect(listed.channels).toHaveLength(1);
+
+    const updated = await patch(`/api/notification-channels/${created.channel.id}`, { enabled: false });
+    expect(updated.channel.enabled).toBe(false);
+
+    const deleted = await deleteRaw(`/api/notification-channels/${created.channel.id}`);
+    expect(deleted.status).toBe(200);
+
+    const listedAfter = await get("/api/notification-channels");
+    expect(listedAfter.channels).toHaveLength(0);
   });
 });
 

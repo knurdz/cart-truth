@@ -1,8 +1,12 @@
-# CartTruth
+<p align="center">
+  <img src="docs/carttruth-logo.svg" alt="CartTruth logo" width="760">
+</p>
 
-CartTruth is a hosted final-checkout price verification platform. Currently in **MVP preview**, the system supports price checking on **Daraz.lk**, but it is architected for generic extraction and we are actively expanding support for other major e-commerce platforms and tourism package booking websites.
+# CartTruth: Final-checkout price verification for online shopping
 
-Users sign in with Google, save product links (currently supporting Daraz), connect their own Daraz account, and run Buy Now checkout checks that stop before purchase. CartTruth compares product-page prices with final checkout totals, including delivery and other checkout-level charges when Daraz exposes them.
+CartTruth is a TypeScript web app and automation service that verifies whether an e-commerce product's displayed price still matches the final checkout total before purchase. The current MVP focuses on Daraz.lk: users save Daraz product links, connect their own Daraz session, and CartTruth runs a guarded Buy Now checkout flow that stops before any order, payment, or confirmation action. The app records the final observed total, evidence artifacts, run history, scheduled jobs, API/MCP access, notifications, and proxy telemetry.
+
+CartTruth was built for shoppers, marketplace researchers, and travel/package buyers who need the real payable price instead of only the listing-page price. The difference from a normal scraper is that CartTruth checks the browser checkout surface with user-owned sessions, proxy-aware routing, safety guards, evidence capture, and a repeatable job pipeline.
 
 Production app:
 
@@ -10,417 +14,175 @@ Production app:
 https://carttruth.knurdz.org
 ```
 
-## What CartTruth Does
+![CartTruth architecture](docs/architecture.svg)
 
-- Lets any verified Google account create a CartTruth account.
-- Gives admin access only to Google emails listed in `CARTTRUTH_ADMIN_EMAILS`.
-- Lets users save product links (currently supporting Daraz).
-- Opens an isolated server-side Daraz browser for each user.
-- Lets users complete Daraz login, OTP, captcha, or verification in that remote browser.
-- Saves each user's Daraz browser profile separately.
-- Optionally stores encrypted Daraz credentials for best-effort auto-login.
-- Runs final checkout checks through Daraz Buy Now flow.
-- Stores run history and evidence artifacts per user.
-- Supports automatic scheduled price checks.
-- Supports user-created API keys for REST API and MCP automation.
-- Supports scoped API keys: REST only, MCP only, or both.
-- Shows TorchProxies network settings and local proxy telemetry.
+## Overview
 
-CartTruth is not a purchasing bot. It must not submit orders, pay, confirm purchases, or save payment details.
+CartTruth answers one practical question: "What will this item really cost at checkout right now?" Modern marketplaces can change final totals based on delivery region, cookies, account state, stock, seller, checkout promotions, or anti-bot behavior. CartTruth keeps a saved product list per user, opens an isolated Daraz browser profile when login or verification is required, and then runs final-price checks that collect product-page and checkout evidence without completing the purchase.
 
-## Main Users
+The project currently supports Daraz.lk and is structured so additional retailers can be added through adapters. The same runtime powers the web dashboard, REST API, MCP tools, scheduled checks, and notification delivery.
 
-### Normal Users
+## Key Features
 
-Normal users can:
+| Feature | Description |
+| --- | --- |
+| Google sign-in and roles | Any verified Google account can sign in; admin access is restricted to emails in `CARTTRUTH_ADMIN_EMAILS`. |
+| Daraz session capture | Each user gets an isolated Daraz browser profile for login, OTP, captcha, and verification. |
+| Final-checkout verification | Runs a guarded Daraz Buy Now checkout flow and extracts product price, checkout total, delivery charges, and availability signals when Daraz exposes them. |
+| Safety guardrails | Blocks order submission, payment, final confirmation, and payment-detail storage flows. |
+| Evidence storage | Stores `result.json` and screenshots under the configured runs directory for auditability. |
+| Scheduled checks | Users can enable automatic checks on an interval; the runtime queues and drains jobs with bounded concurrency. |
+| REST API and MCP | User-created API keys can be scoped to REST, MCP, or both. |
+| Notifications | Price/availability changes can trigger in-app notifications and Slack, Discord, or Telegram delivery. |
+| TorchProxies integration | Routes Daraz browser activity through a configured TorchProxies-style proxy profile and records masked proxy telemetry. |
+| Admin operations | Admins can inspect users, proxy summaries, recent proxy events, and run proxy connectivity tests without seeing raw secrets. |
 
-- Sign in with Google.
-- Save Daraz product URLs.
-- Open and save their own Daraz browser session.
-- Save encrypted Daraz login credentials for best-effort reconnect.
-- Run manual final-price checks.
-- Enable scheduled automatic checks.
-- Create, rename, scope, and delete API keys.
-- Use REST API and MCP tools with their own API keys.
-- Set a TorchProxies requested country preference as an MVP preview setting.
+## How It Works
 
-Normal users can only access their own links, jobs, runs, evidence, settings, credentials, and API keys.
+![CartTruth checkout pipeline](docs/pipeline.svg)
 
-### Admin Users
+1. **Input / trigger**: A user saves a Daraz product link, clicks manual check, enables scheduled checks, or calls the REST/MCP API.
+2. **Product lookup**: `LocalRuntime` calls the Daraz adapter to normalize the product URL and read listing-page price/availability.
+3. **Session preparation**: If checkout requires authentication, CartTruth uses the user's saved Daraz browser profile or opens the built-in browser for manual login/OTP/captcha.
+4. **TorchProxies routing**: Daraz search, product lookup, inbuilt login browser, and checkout browsers receive the configured proxy profile through Playwright.
+5. **Checkout check**: The Daraz adapter opens the product, uses guarded Buy Now navigation, reads checkout rows/totals, and refuses unsafe final-purchase actions.
+6. **Processing layer**: Prices are parsed into typed money values, listing and checkout totals are compared, product changes are detected, and job status is updated.
+7. **Output**: Results are written to SQLite and evidence files, displayed in the dashboard, exposed through REST/MCP, and delivered through notification channels.
 
-Admins can:
+## Pipeline Details
 
-- View users.
-- Enable or disable users.
-- View masked TorchProxies runtime status.
-- View local proxy events recorded by CartTruth.
-- View local proxy usage grouped by source, status, country, and API-key-driven events.
-- Run an admin-only proxy connectivity test.
+### Runtime pipeline
 
-Admins do not see raw proxy passwords, API key tokens, Daraz passwords, cookies, or session secrets.
+`apps/web/src/runtime.ts` is the application orchestrator. It owns the SQLite store, evidence directory, proxy profile, Daraz session manager, scheduler, job queue, notifications, API/MCP-facing methods, and proxy telemetry.
 
-## Product Workflow
-
-1. User signs in with Google.
-2. User opens the Daraz browser from the dashboard.
-3. User logs in to Daraz and completes OTP, captcha, or verification if needed.
-4. User saves the Daraz session.
-5. User saves product links.
-6. CartTruth reads product-page prices and queues final checkout checks.
-7. User can run checks manually or enable scheduled automatic checks.
-8. CartTruth stores results, evidence, and job history.
-9. User can automate the same workflows through REST API or MCP.
-
-## Daraz Login And Session Model
-
-- Google OAuth is the only CartTruth login method.
-- Each user has their own isolated Daraz browser profile.
-- Browser profiles are stored under `/data/sessions/users/{userId}/` in Docker.
-- Run artifacts are stored under `/data/runs` in Docker.
-- SQLite data is stored at `/data/carttruth.db` in Docker.
-- Optional Daraz credentials are encrypted using `CARTTRUTH_ENCRYPTION_KEY`.
-- If Daraz requires manual action, the job returns `needs_user_action`.
-- The user must complete Daraz verification in the CartTruth web dashboard before retrying.
-
-On VPS/Docker:
-
-- User login and OTP/captcha handling use the noVNC browser.
-- Automated final checkout checks run headless by default.
-- Set `CARTTRUTH_DARAZ_CHECK_HEADLESS=false` only for local headed debugging with a real display or Xvfb.
-
-## TorchProxies Support
-
-CartTruth can route Daraz browser/check traffic through a configured proxy profile. The current production-oriented profile is loaded from `CARTTRUTH_TORCH_ISP_PROXY` and is displayed as a masked TorchProxies profile in the app.
-
-Current MVP support:
-
-- Loads TorchProxies-style ISP proxy configuration from environment.
-- Masks proxy username/password everywhere in health responses, logs, and UI.
-- Shows user-side `TorchProxies Network` settings.
-- Lets users save a requested country preference.
-- Shows preview controls for sticky checkout session, rotate before next check, and auto fallback country.
-- Records local CartTruth proxy events for Daraz search/product/check/admin-test flows.
-- Shows admin-side `Proxy Operations` with local usage, recent events, status, source, country, pool type, and API-key-driven proxy usage.
-
-Important MVP limits:
-
-- Requested country is saved but not applied to live proxy routing yet.
-- Preview controls are UI-only until routing support is implemented.
-- CartTruth does not fetch TorchProxies dashboard/API data yet.
-- `TORCHPROXIES_API_KEY` is reserved for a future external dashboard sync. It is not used by current code.
-
-## REST API And MCP
-
-Users create API keys from Settings. Each key has:
-
-- Name.
-- Token prefix shown later.
-- One-time full token display at creation.
-- Scope list: `rest`, `mcp`, or both.
-- Last-used timestamp.
-- Delete/revoke action.
-
-API keys start with `ct_`. Store them in environment variables or a secret manager. If a key is exposed, delete it and create a new one.
-
-### REST API
-
-REST endpoints live under:
+The main price-check path is:
 
 ```text
-/api/v1
+save link / queue job / API / MCP
+  -> LocalRuntime.enqueueSavedLinkCheck or checkSavedLinks
+  -> ensureDarazSessionForUser
+  -> DarazService.check
+  -> evidenceStore.writeJson + screenshots
+  -> store.recordRun + updateSavedLinksFromResult
+  -> in-app/webhook notifications when price or stock changes
 ```
 
-Authentication:
+### Adapter pipeline
 
-```http
-Authorization: Bearer ct_your_api_key
-```
+Retailer-specific browser behavior lives in `packages/adapters`. The Daraz adapter performs search, product URL normalization, product-page extraction, session validation, cart/checkout navigation, Buy Now handling, checkout total extraction, and session metadata updates. Shared contracts live in `packages/schemas`, and shared runner/evidence/proxy/safety utilities live in `packages/core`.
 
-Available REST endpoints:
+### Job pipeline
 
-```text
-GET    /api/v1/me
-GET    /api/v1/settings
-PATCH  /api/v1/settings
-GET    /api/v1/links
-POST   /api/v1/links
-DELETE /api/v1/links/:linkId
-POST   /api/v1/links/check-jobs
-GET    /api/v1/price-check-jobs
-GET    /api/v1/price-check-jobs/:jobId
-GET    /api/v1/runs
-GET    /api/v1/runs/:runId
-GET    /api/v1/runs/:runId/artifacts/:file
-```
+Manual and scheduled checks are stored as `price_check_jobs`. On boot, the runtime requeues jobs that were left running, starts a scheduler, and drains queued jobs up to `CARTTRUTH_PRICE_CHECK_CONCURRENCY` with per-user Daraz locks so one user's browser profile is not used by competing checks.
 
-Example:
+### Automation pipeline
+
+REST endpoints under `/api/v1` and the `/mcp` endpoint both call the same runtime methods as the dashboard. API keys are hashed in storage, scoped by capability, and rate limited separately for general REST, task-creating REST calls, and MCP.
+
+## Proxy Integration
+
+![TorchProxies integration flow](docs/proxy-flow.svg)
+
+TorchProxies sits in the network layer between CartTruth's Playwright browsers and Daraz. CartTruth currently loads a TorchProxies-style ISP proxy from environment, converts it into Playwright proxy settings, attaches it to Daraz browser contexts, masks the credential-bearing endpoint everywhere it is shown, and records local telemetry for each proxied operation.
+
+Why proxies are needed:
+
+- Daraz checkout behavior can vary by IP region, account session, cookies, and traffic reputation.
+- Repeated automated checks without proxy-aware routing can trigger blocks, empty responses, login challenges, or CAPTCHA/verification pages.
+- Proxy continuity matters: the Daraz login browser and checkout browser should use the same proxy fingerprint so the saved account session remains valid.
+
+How TorchProxies is used today:
+
+- `CARTTRUTH_TORCH_ISP_PROXY=host:port:username:password` loads the default profile id `torch-isp-trial`.
+- `packages/core/src/proxy.ts` parses the proxy string, masks secrets, creates Undici proxy URLs for connectivity tests, and creates Playwright proxy config.
+- `apps/web/src/runtime.ts` loads the proxy once at startup and passes it into `DarazService`.
+- `packages/adapters/src/daraz.ts` passes the proxy into Chromium for search, product lookup, inbuilt login/session capture, and persistent checkout browsers.
+- Session metadata stores a masked proxy summary/fingerprint; if the current proxy changes, CartTruth asks the user to refresh the Daraz login session.
+- `proxy_events` records operation, source, status, elapsed time, country, pool type, API-key context, and masked proxy metadata.
+- Admin proxy routes expose summarized local telemetry and a proxy connectivity test.
+
+What breaks without it:
+
+- Checks may run from the server/VPS IP instead of the shopper-like network path the organizer expects.
+- Saved Daraz sessions can become invalid if login and checkout happen through different network identities.
+- Repeated product and checkout reads are more likely to encounter blocks, verification pages, or incomplete checkout data.
+
+Current MVP limits:
+
+- The user-side country selector saves `proxyCountryPreference`, but live routing still uses the configured environment proxy profile.
+- Sticky session, rotate-before-next-check, and fallback-country controls are preview UI until routing support is expanded.
+- `TORCHPROXIES_API_KEY` is reserved for future dashboard/API synchronization and is not used by current runtime code.
+
+## Tech Stack
+
+| Layer | Technology |
+| --- | --- |
+| Language | TypeScript, Node.js |
+| Web server | Express |
+| Frontend | React 19, Vite |
+| Browser automation | Playwright Chromium |
+| Data validation | Zod |
+| Database | SQLite through Node `DatabaseSync` |
+| API automation | REST API and Model Context Protocol SDK |
+| Proxy | TorchProxies-style HTTP/HTTPS/SOCKS profile via Playwright and Undici |
+| Notifications | Slack, Discord, Telegram webhooks/bot APIs |
+| Tests | Vitest |
+| Deployment | Docker Compose, Caddy HTTPS reverse proxy |
+
+## Data Sources
+
+| Source | Data Extracted | Method |
+| --- | --- | --- |
+| Daraz product pages | Title, URL, product id signals, listing price, availability | Playwright browser extraction through the Daraz adapter |
+| Daraz checkout pages | Selected product rows, checkout total, delivery/adjustment line items, login/block states | Guarded Playwright checkout flow through the user's saved Daraz session |
+| Google OAuth | User identity, verified email, display metadata | Google OAuth callback verification |
+| User input | Saved links, settings, Daraz credentials, notification channels, API key scopes | Dashboard, REST API, MCP |
+| TorchProxies config | Proxy endpoint, country, source, pool type, masked fingerprint | Environment variables parsed by `packages/core/src/proxy.ts` |
+| Local telemetry | Runs, jobs, evidence paths, proxy events, notification delivery status | SQLite and filesystem evidence store |
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 22+ or a compatible Node runtime
+- pnpm 9.x
+- Playwright browser dependencies
+- Google OAuth Web application client
+- TorchProxies ISP proxy credentials
+- Docker and Docker Compose for VPS deployment
+
+### Installation
 
 ```bash
-export CARTTRUTH_API_KEY=ct_your_api_key
-
-curl https://carttruth.knurdz.org/api/v1/links \
-  -H "Authorization: Bearer $CARTTRUTH_API_KEY"
-```
-
-Add a Daraz link and queue a final checkout check:
-
-```bash
-curl https://carttruth.knurdz.org/api/v1/links \
-  -H "Authorization: Bearer $CARTTRUTH_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://www.daraz.lk/products/example.html"}'
-```
-
-Update settings:
-
-```bash
-curl -X PATCH https://carttruth.knurdz.org/api/v1/settings \
-  -H "Authorization: Bearer $CARTTRUTH_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "autoPriceCheckEnabled": true,
-    "autoPriceCheckIntervalHours": 4,
-    "proxyCountryPreference": "SG"
-  }'
-```
-
-Task-creating REST calls are rate limited per API key and return `429` with `Retry-After` and `x-ratelimit-*` headers when limited.
-
-Default rate limits:
-
-```text
-CARTTRUTH_API_RATE_LIMIT_PER_MINUTE=120
-CARTTRUTH_API_TASK_RATE_LIMIT_PER_MINUTE=10
-CARTTRUTH_MCP_RATE_LIMIT_PER_MINUTE=60
-```
-
-### MCP
-
-MCP endpoint:
-
-```text
-https://carttruth.knurdz.org/mcp
-```
-
-MCP requires an API key with the `mcp` scope.
-
-Available MCP tools:
-
-```text
-carttruth_list_links
-carttruth_add_link
-carttruth_delete_link
-carttruth_get_settings
-carttruth_update_settings
-carttruth_queue_check
-carttruth_list_jobs
-carttruth_get_job
-carttruth_list_runs
-carttruth_get_run
-```
-
-MCP clients cannot save Daraz credentials or control the remote browser. If Daraz needs login, OTP, captcha, or verification, complete that in the web UI.
-
-Codex config:
-
-```toml
-[mcp_servers.carttruth]
-url = "https://carttruth.knurdz.org/mcp"
-bearer_token_env_var = "CARTTRUTH_API_KEY"
-```
-
-Cursor config:
-
-```json
-{
-  "mcpServers": {
-    "carttruth": {
-      "url": "https://carttruth.knurdz.org/mcp",
-      "headers": {
-        "Authorization": "Bearer ${env:CARTTRUTH_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-Claude Code:
-
-```bash
-claude mcp add --transport http carttruth https://carttruth.knurdz.org/mcp \
-  --header "Authorization: Bearer $CARTTRUTH_API_KEY"
-```
-
-VS Code:
-
-```json
-{
-  "inputs": [
-    {
-      "id": "carttruth-api-key",
-      "type": "promptString",
-      "description": "CartTruth API key",
-      "password": true
-    }
-  ],
-  "servers": {
-    "carttruth": {
-      "type": "http",
-      "url": "https://carttruth.knurdz.org/mcp",
-      "headers": {
-        "Authorization": "Bearer ${input:carttruth-api-key}"
-      }
-    }
-  }
-}
-```
-
-## Web App Routes
-
-```text
-/       Main app dashboard
-/docs   Public REST API and MCP documentation
-```
-
-Public or session routes:
-
-```text
-GET  /api/health
-GET  /api/auth/google/start
-GET  /api/auth/google/callback
-GET  /api/auth/me
-POST /api/auth/logout
-```
-
-Logged-in user API routes include settings, Daraz session, credentials, links, jobs, runs, evidence, API keys, and proxy status.
-
-Admin-only API routes:
-
-```text
-GET  /api/admin/users
-POST /api/admin/users/:userId/disabled
-GET  /api/admin/proxy/summary
-GET  /api/admin/proxy/events
-POST /api/admin/proxy/test
-POST /api/proxy/test
-```
-
-The legacy `/api/proxy/test` route exists for compatibility but requires admin login.
-
-## Data Stored
-
-CartTruth uses SQLite through Node's `DatabaseSync`.
-
-Main tables:
-
-```text
-users
-app_sessions
-api_keys
-saved_links
-daraz_credentials
-daraz_runs
-user_settings
-price_check_jobs
-proxy_events
-```
-
-Sensitive storage rules:
-
-- API key tokens are hashed before storage.
-- Session tokens are hashed before storage.
-- Daraz passwords are encrypted before storage.
-- Proxy passwords are never displayed in full.
-- Logs redact secrets, passwords, cookies, tokens, authorization headers, and proxy passwords.
-
-## Project Structure
-
-```text
-apps/web          Web app, API server, MCP handler, runtime, SQLite store
-apps/cli          CLI entrypoint
-packages/core     Shared runner, evidence, money, proxy, safety, redaction logic
-packages/adapters Daraz browser adapter and related browser/session helpers
-packages/schemas  Shared Zod schemas and types
-tests             Vitest coverage for API, Daraz flow, proxy, safety, schemas, deploy checks
-scripts           Deployment/update helper scripts
-docs              Additional project docs
-examples          Example inputs/configs
-```
-
-## Local Development
-
-Install dependencies:
-
-```bash
-cd /Users/rk_vishva/Documents/Projects/CartTruth
+git clone https://github.com/knurdz/cart-truth.git
+cd cart-truth
 pnpm install
 ```
 
-Run the web app:
+### Configuration
 
 ```bash
-pnpm web
+cp .env.example .env
 ```
 
-Open the URL printed by the server. It usually starts at:
+Fill the required values:
 
-```text
-http://localhost:5173
-```
+| Variable | Required | Description |
+| --- | --- | --- |
+| `CARTTRUTH_PUBLIC_URL` | Yes | Public base URL, for example `https://carttruth.knurdz.org`. |
+| `CARTTRUTH_GOOGLE_CLIENT_ID` | Yes | Google OAuth Web client id. |
+| `CARTTRUTH_GOOGLE_CLIENT_SECRET` | Yes | Google OAuth Web client secret. |
+| `CARTTRUTH_GOOGLE_REDIRECT_URI` | Yes | OAuth callback URL, for example `/api/auth/google/callback`. |
+| `CARTTRUTH_ADMIN_EMAILS` | Yes | Comma-separated Google emails that should become admins. |
+| `CARTTRUTH_ENCRYPTION_KEY` | Yes | Server-only key used to encrypt saved Daraz credentials and notification config. |
+| `CARTTRUTH_TORCH_ISP_PROXY` | Yes for proxied checks | TorchProxies profile in `host:port:username:password` or proxy URL format. |
+| `CARTTRUTH_SQLITE_PATH` | Production | SQLite database path. Docker uses `/data/carttruth.db`. |
+| `CARTTRUTH_SESSIONS_DIR` | Production | Browser session profile directory. Docker uses `/data/sessions`. |
+| `CARTTRUTH_RUNS_DIR` | Production | Evidence output directory. Docker uses `/data/runs`. |
+| `CARTTRUTH_BROWSER_MODE` | Recommended | Use `vnc` on VPS so users can complete Daraz login/OTP/captcha. |
+| `CARTTRUTH_DARAZ_CHECK_HEADLESS` | Recommended | Use `true` for server-side automated checks. |
 
-If that port is busy, the server automatically tries the next available port.
-
-Run API-only server:
-
-```bash
-pnpm api
-```
-
-Run checks:
-
-```bash
-pnpm typecheck
-pnpm test
-pnpm exec vite build apps/web
-```
-
-## Google OAuth Setup
-
-CartTruth requires a Google Web application OAuth client.
-
-1. Open Google Cloud Console.
-2. Create or select a project.
-3. Configure the OAuth consent screen/branding.
-4. Create credentials:
-
-```text
-APIs & Services -> Credentials -> Create Credentials -> OAuth client ID
-Application type: Web application
-```
-
-5. Add authorized redirect URIs:
-
-```text
-https://carttruth.knurdz.org/api/auth/google/callback
-http://localhost:5173/api/auth/google/callback
-```
-
-If local development uses another port, add that exact callback URL too.
-
-6. Copy credentials into `.env`:
-
-```bash
-CARTTRUTH_GOOGLE_CLIENT_ID=...
-CARTTRUTH_GOOGLE_CLIENT_SECRET=...
-CARTTRUTH_GOOGLE_REDIRECT_URI=https://carttruth.knurdz.org/api/auth/google/callback
-CARTTRUTH_ADMIN_EMAILS=your-admin@gmail.com
-```
-
-## Environment Variables
-
-Create `.env` from `.env.example`.
-
-Required production values:
+Common production values:
 
 ```bash
 CARTTRUTH_DOMAIN=carttruth.knurdz.org
@@ -440,19 +202,21 @@ CARTTRUTH_ENCRYPTION_KEY=replace-with-openssl-rand-base64-32
 CARTTRUTH_TORCH_ISP_PROXY=host:61234:username:password
 ```
 
-Generate encryption key:
+Generate an encryption key:
 
 ```bash
 openssl rand -base64 32
 ```
 
-Proxy configuration options:
+TorchProxies can be configured in one preferred string:
 
 ```bash
-# Preferred single-string format
 CARTTRUTH_TORCH_ISP_PROXY=host:61234:username:password
+```
 
-# Alternative separate fields
+or separate fields:
+
+```bash
 CARTTRUTH_PROXY_HOST=host
 CARTTRUTH_PROXY_PORT=61234
 CARTTRUTH_PROXY_USERNAME=username
@@ -461,18 +225,153 @@ CARTTRUTH_PROXY_PROTOCOL=http
 CARTTRUTH_PROXY_COUNTRY=US
 ```
 
-Optional rate limit values:
+### Run
 
 ```bash
-CARTTRUTH_API_RATE_LIMIT_PER_MINUTE=120
-CARTTRUTH_API_TASK_RATE_LIMIT_PER_MINUTE=10
-CARTTRUTH_MCP_RATE_LIMIT_PER_MINUTE=60
+pnpm web
 ```
 
-Optional future TorchProxies API placeholder:
+Open the printed local URL, usually:
+
+```text
+http://localhost:5173
+```
+
+API-only mode:
 
 ```bash
-TORCHPROXIES_API_KEY=not-used-yet
+pnpm api
+```
+
+### One-command Docker Demo
+
+```bash
+docker compose up --build
+```
+
+For production, set real `.env` values first and point DNS at the host running Caddy.
+
+## Project Structure
+
+```text
+cart-truth/
+|-- apps/
+|   |-- web/                 # React dashboard, Express API, MCP handler, runtime, SQLite store
+|   `-- cli/                 # CLI entrypoint
+|-- packages/
+|   |-- core/                # Runner, evidence store, proxy helpers, money parsing, safety helpers
+|   |-- adapters/            # Daraz adapter and retailer adapter registry
+|   |-- schemas/             # Shared Zod schemas and TypeScript types
+|   `-- notifications/       # Slack, Discord, Telegram notification delivery
+|-- docs/                    # README diagrams and extra docs
+|-- examples/                # Example Daraz product input
+|-- tests/                   # Vitest coverage for API, proxy, Daraz flow, safety, schema, deploy
+|-- scripts/                 # Install/update helpers
+|-- docker-compose.yml       # App + Caddy deployment
+|-- Dockerfile               # Production image
+|-- Caddyfile                # HTTPS reverse proxy
+|-- .env.example             # Environment template with placeholder values
+`-- README.md
+```
+
+## Development Guide
+
+### Running Locally
+
+```bash
+pnpm install
+pnpm web
+```
+
+Useful local paths:
+
+```text
+.carttruth/sessions    Local browser profiles
+runs                   Local run evidence
+.env                   Local secrets, not committed
+```
+
+### Running Tests
+
+```bash
+pnpm test
+```
+
+Run a specific test file:
+
+```bash
+pnpm vitest run tests/proxy.test.ts
+pnpm vitest run tests/daraz-flow.test.ts
+```
+
+### Common Dev Commands
+
+```bash
+pnpm typecheck
+pnpm test
+pnpm verify
+pnpm exec vite build apps/web
+```
+
+### REST API
+
+Create an API key in the dashboard, then call:
+
+```bash
+export CARTTRUTH_API_KEY=ct_your_api_key
+
+curl https://carttruth.knurdz.org/api/v1/links \
+  -H "Authorization: Bearer $CARTTRUTH_API_KEY"
+```
+
+Important REST endpoints:
+
+```text
+GET    /api/v1/me
+GET    /api/v1/settings
+PATCH  /api/v1/settings
+GET    /api/v1/links
+POST   /api/v1/links
+DELETE /api/v1/links/:linkId
+POST   /api/v1/links/check-jobs
+GET    /api/v1/price-check-jobs
+GET    /api/v1/price-check-jobs/:jobId
+GET    /api/v1/runs
+GET    /api/v1/runs/:runId
+GET    /api/v1/runs/:runId/artifacts/:file
+```
+
+Task-creating REST calls are rate limited per API key and return `429` with `Retry-After` and `x-ratelimit-*` headers when limited.
+
+### MCP
+
+MCP endpoint:
+
+```text
+https://carttruth.knurdz.org/mcp
+```
+
+Available MCP tools:
+
+```text
+carttruth_list_links
+carttruth_add_link
+carttruth_delete_link
+carttruth_get_settings
+carttruth_update_settings
+carttruth_queue_check
+carttruth_list_jobs
+carttruth_get_job
+carttruth_list_runs
+carttruth_get_run
+```
+
+Codex config:
+
+```toml
+[mcp_servers.carttruth]
+url = "https://carttruth.knurdz.org/mcp"
+bearer_token_env_var = "CARTTRUTH_API_KEY"
 ```
 
 ## VPS Deployment
@@ -544,11 +443,11 @@ First setup:
 - Open `https://carttruth.knurdz.org`.
 - Sign in with a Google account listed in `CARTTRUTH_ADMIN_EMAILS`.
 - Confirm the account appears as admin.
-- Open Settings and confirm API keys and TorchProxies Network panels load.
+- Open Settings and confirm API keys, notification channels, and TorchProxies Network panels load.
 - Open Admin and confirm Users and Proxy Operations panels load.
 - Have each user open and save their Daraz browser session before relying on checks.
 
-## Updating Production
+## Updating A Live Deployment
 
 ```bash
 cd /opt/carttruth
@@ -557,7 +456,7 @@ docker compose up -d --build
 docker compose logs -f carttruth
 ```
 
-Or use:
+or:
 
 ```bash
 ./scripts/update.sh
@@ -572,7 +471,7 @@ docker compose exec carttruth sh -lc 'sqlite3 /data/carttruth.db ".backup /data/
 docker cp carttruth-carttruth-1:/data/carttruth-backup.db ./carttruth-backup.db
 ```
 
-Backup full data volume:
+Backup the full data volume:
 
 ```bash
 docker run --rm \
@@ -592,16 +491,26 @@ docker run --rm \
 docker compose up -d
 ```
 
-## Debugging
+## Troubleshooting
 
-Application logs are JSON lines:
+| Problem | Likely Cause | Fix |
+| --- | --- | --- |
+| Google sign-in fails | OAuth redirect URI mismatch | Add the exact local or production `/api/auth/google/callback` URL in Google Cloud Console. |
+| Daraz check says login required | No saved Daraz profile or profile invalidated | Open the built-in Daraz browser, complete login/OTP/captcha, and save session. |
+| Daraz asks for verification after auto-login | Marketplace challenge or captcha | Finish verification in the remote browser, then save session and retry. |
+| Proxy requests fail | Bad proxy credentials, wrong format, or provider outage | Check `CARTTRUTH_TORCH_ISP_PROXY`, run the admin proxy test, and rotate credentials if needed. |
+| Saved Daraz session no longer works after proxy change | Login was saved with a different proxy fingerprint | Re-open the Daraz browser and save login using the current proxy profile. |
+| Scheduled checks do not run | No saved links, disabled schedule, or scheduler interval not due | Check Settings, `price_check_jobs`, and application logs. |
+| Docker build fails | Stale dependencies or build cache | Run `docker compose build --no-cache carttruth`, then `docker compose up -d`. |
+
+Useful logs:
 
 ```bash
 docker compose logs -f carttruth
 docker compose logs -f caddy
 ```
 
-Useful checks:
+Useful production checks:
 
 ```bash
 docker compose exec carttruth sh -lc 'ls -lah /data /data/runs /data/sessions'
@@ -610,52 +519,21 @@ docker compose exec carttruth sh -lc 'sqlite3 /data/carttruth.db "select email, 
 docker compose exec carttruth sh -lc 'sqlite3 /data/carttruth.db "select operation, source, status, proxy_country, created_at from proxy_events order by created_at desc limit 10;"'
 ```
 
-Useful log fields:
-
-```text
-requestId
-userId
-apiKeyId
-runId
-jobId
-captureId
-browserMode
-proxy.masked
-elapsedMs
-status
-```
-
-Common problems:
-
-- Google sign-in fails: verify redirect URI exactly matches `CARTTRUTH_GOOGLE_REDIRECT_URI`.
-- User is not admin: add their Google email to `CARTTRUTH_ADMIN_EMAILS` and restart.
-- Daraz asks for OTP/captcha: user must complete it in the remote browser.
-- Auto-login fails: verify encrypted Daraz credentials or save a fresh Daraz browser session.
-- Proxy test fails: verify `CARTTRUTH_TORCH_ISP_PROXY`, proxy country, and network access from the VPS.
-- REST/MCP returns `403`: API key does not have the required scope.
-- REST/MCP returns `429`: API key hit the configured rate limit.
-
 ## Security Notes
 
-- Keep `.env` out of source control.
-- Rotate exposed API keys immediately.
-- Rotate exposed TorchProxies credentials immediately.
-- Use the narrowest API key scope that works.
-- Do not share browser session files.
-- Do not log or paste Daraz passwords.
-- Do not use real payment details in automated test flows.
-- Review Admin Proxy Operations as local CartTruth telemetry, not official TorchProxies billing data.
+- Never commit `.env`, real proxy credentials, OAuth credentials, Daraz credentials, API tokens, cookies, or session directories.
+- API key tokens are hashed before storage and only shown once at creation.
+- Session tokens are hashed before storage.
+- Daraz passwords and notification configs are encrypted with `CARTTRUTH_ENCRYPTION_KEY`.
+- Proxy passwords are masked in health responses, logs, UI, telemetry, and README examples.
+- Logs redact secrets, passwords, cookies, bearer tokens, authorization headers, and proxy credentials.
+- Admin routes never expose raw proxy passwords, Daraz passwords, API key tokens, cookies, or session secrets.
+- CartTruth is a verification tool. It must not submit orders, pay, confirm purchases, or save payment details.
 
-## Useful Commands
+## Team
 
-```bash
-git status
-pnpm typecheck
-pnpm test
-pnpm verify
-pnpm exec vite build apps/web
-docker compose config
-docker compose build
-docker compose up -d
-docker compose logs -f carttruth
-```
+Built at ProxyMaze '26, hosted by TorchProxies.
+
+| Name | Role | GitHub |
+| --- | --- | --- |
+| R. K. Vishva | Full-stack, automation, proxy integration | `@rk_vishva` |

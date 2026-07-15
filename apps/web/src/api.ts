@@ -2,6 +2,7 @@ import { basename, extname } from "node:path";
 import express, { type Express } from "express";
 import { z } from "zod";
 import { DarazCheckRequestSchema } from "@carttruth/schemas";
+import { isAllowedWebhookUrl } from "@carttruth/notifications";
 import {
   clearOAuthCookie,
   clearSessionCookie,
@@ -47,6 +48,41 @@ const ApiKeyUpdateBodySchema = z.object({
   scopes: ApiKeyScopesSchema.optional()
 }).refine((value) => value.name !== undefined || value.scopes !== undefined, {
   message: "Provide a name or scopes."
+});
+
+const NotificationChannelCreateBodySchema = z.discriminatedUnion("platform", [
+  z.object({
+    platform: z.literal("slack"),
+    label: z.string().trim().min(1).max(80).optional(),
+    webhookUrl: z.string().url()
+  }),
+  z.object({
+    platform: z.literal("discord"),
+    label: z.string().trim().min(1).max(80).optional(),
+    webhookUrl: z.string().url()
+  }),
+  z.object({
+    platform: z.literal("telegram"),
+    label: z.string().trim().min(1).max(80).optional(),
+    botToken: z.string().trim().min(1),
+    chatId: z.string().trim().regex(/^-?\d+$/)
+  })
+]);
+
+const NotificationChannelUpdateBodySchema = z.object({
+  label: z.string().trim().min(1).max(80).nullable().optional(),
+  enabled: z.boolean().optional(),
+  webhookUrl: z.string().url().optional(),
+  botToken: z.string().trim().min(1).optional(),
+  chatId: z.string().trim().regex(/^-?\d+$/).optional()
+}).refine((value) => (
+  value.label !== undefined
+  || value.enabled !== undefined
+  || value.webhookUrl !== undefined
+  || value.botToken !== undefined
+  || value.chatId !== undefined
+), {
+  message: "Provide at least one field to update."
 });
 
 const ProxyTestBodySchema = z.object({
@@ -333,6 +369,72 @@ export function createApiApp(runtime: LocalRuntime): Express {
     response.json({ marked, unreadCount: 0 });
   });
 
+  app.get("/api/notification-channels", requireUser(runtime), (request, response) => {
+    response.json({ channels: runtime.listNotificationChannels(request.user.id) });
+  });
+
+  app.post("/api/notification-channels", requireUser(runtime), (request, response, next) => {
+    try {
+      const body = NotificationChannelCreateBodySchema.parse(request.body ?? {});
+      if ((body.platform === "slack" || body.platform === "discord") && !isAllowedWebhookUrl(body.webhookUrl)) {
+        response.status(400).json({ error: "Webhook URL is not from an allowed Slack or Discord host." });
+        return;
+      }
+      const channel = runtime.createNotificationChannel(request.user.id, {
+        platform: body.platform,
+        ...(body.label ? { label: body.label } : {}),
+        ...(body.platform === "telegram"
+          ? { botToken: body.botToken, chatId: body.chatId }
+          : { webhookUrl: body.webhookUrl })
+      });
+      response.status(201).json({ channel });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/notification-channels/:channelId", requireUser(runtime), (request, response, next) => {
+    try {
+      const body = NotificationChannelUpdateBodySchema.parse(request.body ?? {});
+      if (body.webhookUrl && !isAllowedWebhookUrl(body.webhookUrl)) {
+        response.status(400).json({ error: "Webhook URL is not from an allowed Slack or Discord host." });
+        return;
+      }
+      const channel = runtime.updateNotificationChannel(request.user.id, routeParam(request, "channelId"), {
+        ...(body.label !== undefined ? { label: body.label } : {}),
+        ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+        ...(body.webhookUrl !== undefined ? { webhookUrl: body.webhookUrl } : {}),
+        ...(body.botToken !== undefined ? { botToken: body.botToken } : {}),
+        ...(body.chatId !== undefined ? { chatId: body.chatId } : {})
+      });
+      if (!channel) {
+        response.status(404).json({ error: "Notification channel not found." });
+        return;
+      }
+      response.json({ channel });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/notification-channels/:channelId", requireUser(runtime), (request, response) => {
+    runtime.deleteNotificationChannel(request.user.id, routeParam(request, "channelId"));
+    response.json({ ok: true });
+  });
+
+  app.post("/api/notification-channels/:channelId/test", requireUser(runtime), async (request, response, next) => {
+    try {
+      const result = await runtime.testNotificationChannel(request.user.id, routeParam(request, "channelId"));
+      response.status(result.ok ? 200 : 502).json(result);
+    } catch (error) {
+      if (error instanceof Error && error.message === "Notification channel not found.") {
+        response.status(404).json({ error: error.message });
+        return;
+      }
+      next(error);
+    }
+  });
+
   app.patch("/api/settings", requireUser(runtime), (request, response, next) => {
     try {
       const body = UserSettingsBodySchema.parse(request.body ?? {});
@@ -574,6 +676,72 @@ export function createApiApp(runtime: LocalRuntime): Express {
         ...(body.proxyCountryPreference !== undefined ? { proxyCountryPreference: body.proxyCountryPreference } : {})
       }));
     } catch (error) {
+      next(error);
+    }
+  });
+
+  publicApi.get("/notification-channels", (request, response) => {
+    response.json({ channels: runtime.listNotificationChannels(request.apiUser.id) });
+  });
+
+  publicApi.post("/notification-channels", (request, response, next) => {
+    try {
+      const body = NotificationChannelCreateBodySchema.parse(request.body ?? {});
+      if ((body.platform === "slack" || body.platform === "discord") && !isAllowedWebhookUrl(body.webhookUrl)) {
+        response.status(400).json({ error: "Webhook URL is not from an allowed Slack or Discord host." });
+        return;
+      }
+      const channel = runtime.createNotificationChannel(request.apiUser.id, {
+        platform: body.platform,
+        ...(body.label ? { label: body.label } : {}),
+        ...(body.platform === "telegram"
+          ? { botToken: body.botToken, chatId: body.chatId }
+          : { webhookUrl: body.webhookUrl })
+      });
+      response.status(201).json({ channel });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  publicApi.patch("/notification-channels/:channelId", (request, response, next) => {
+    try {
+      const body = NotificationChannelUpdateBodySchema.parse(request.body ?? {});
+      if (body.webhookUrl && !isAllowedWebhookUrl(body.webhookUrl)) {
+        response.status(400).json({ error: "Webhook URL is not from an allowed Slack or Discord host." });
+        return;
+      }
+      const channel = runtime.updateNotificationChannel(request.apiUser.id, routeParam(request, "channelId"), {
+        ...(body.label !== undefined ? { label: body.label } : {}),
+        ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+        ...(body.webhookUrl !== undefined ? { webhookUrl: body.webhookUrl } : {}),
+        ...(body.botToken !== undefined ? { botToken: body.botToken } : {}),
+        ...(body.chatId !== undefined ? { chatId: body.chatId } : {})
+      });
+      if (!channel) {
+        response.status(404).json({ error: "Notification channel not found." });
+        return;
+      }
+      response.json({ channel });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  publicApi.delete("/notification-channels/:channelId", (request, response) => {
+    runtime.deleteNotificationChannel(request.apiUser.id, routeParam(request, "channelId"));
+    response.json({ ok: true });
+  });
+
+  publicApi.post("/notification-channels/:channelId/test", async (request, response, next) => {
+    try {
+      const result = await runtime.testNotificationChannel(request.apiUser.id, routeParam(request, "channelId"));
+      response.status(result.ok ? 200 : 502).json(result);
+    } catch (error) {
+      if (error instanceof Error && error.message === "Notification channel not found.") {
+        response.status(404).json({ error: error.message });
+        return;
+      }
       next(error);
     }
   });

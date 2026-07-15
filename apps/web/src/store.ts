@@ -153,6 +153,35 @@ export interface AppNotification {
   relatedJobId?: string;
 }
 
+export type NotificationPlatform = "slack" | "discord" | "telegram";
+
+export interface NotificationChannel {
+  id: string;
+  userId: string;
+  platform: NotificationPlatform;
+  label?: string;
+  enabled: boolean;
+  configured: boolean;
+  webhookHost?: string;
+  lastDeliveryAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationChannelRecord {
+  id: string;
+  userId: string;
+  platform: NotificationPlatform;
+  label?: string;
+  enabled: boolean;
+  encryptedConfig: string;
+  lastDeliveryAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface SqlRow {
   [column: string]: unknown;
 }
@@ -302,6 +331,19 @@ export class AppStore {
         read_at TEXT,
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS notification_channels (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        platform TEXT NOT NULL CHECK (platform IN ('slack', 'discord', 'telegram')),
+        label TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        encrypted_config TEXT NOT NULL,
+        last_delivery_at TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
     this.addColumnIfMissing("users", "google_sub", "TEXT");
     this.addColumnIfMissing("users", "email", "TEXT");
@@ -341,6 +383,9 @@ export class AppStore {
 
       CREATE INDEX IF NOT EXISTS notifications_user_unread_idx
         ON notifications(user_id, read_at, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS notification_channels_user_idx
+        ON notification_channels(user_id, enabled, created_at DESC);
     `);
   }
 
@@ -720,6 +765,11 @@ export class AppStore {
 
   getSavedLink(userId: string, linkId: string): SavedLink | undefined {
     const row = this.db.prepare("SELECT * FROM saved_links WHERE user_id = ? AND id = ?").get(userId, linkId) as SqlRow | undefined;
+    return row ? mapSavedLink(row) : undefined;
+  }
+
+  getSavedLinkByUrl(userId: string, url: string): SavedLink | undefined {
+    const row = this.db.prepare("SELECT * FROM saved_links WHERE user_id = ? AND url = ?").get(userId, url) as SqlRow | undefined;
     return row ? mapSavedLink(row) : undefined;
   }
 
@@ -1143,6 +1193,112 @@ export class AppStore {
     return Number(result.changes ?? 0);
   }
 
+  listNotificationChannels(userId: string): NotificationChannelRecord[] {
+    return this.db.prepare(`
+      SELECT * FROM notification_channels
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+    `).all(userId).map(mapNotificationChannelRecord);
+  }
+
+  listEnabledNotificationChannels(userId: string): NotificationChannelRecord[] {
+    return this.db.prepare(`
+      SELECT * FROM notification_channels
+      WHERE user_id = ? AND enabled = 1
+      ORDER BY created_at DESC
+    `).all(userId).map(mapNotificationChannelRecord);
+  }
+
+  getNotificationChannel(userId: string, channelId: string): NotificationChannelRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT * FROM notification_channels WHERE user_id = ? AND id = ?
+    `).get(userId, channelId) as SqlRow | undefined;
+    return row ? mapNotificationChannelRecord(row) : undefined;
+  }
+
+  createNotificationChannel(input: {
+    userId: string;
+    platform: NotificationPlatform;
+    label?: string;
+    encryptedConfig: string;
+    enabled?: boolean;
+  }): NotificationChannelRecord {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO notification_channels (
+        id, user_id, platform, label, enabled, encrypted_config, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      input.userId,
+      input.platform,
+      input.label ?? null,
+      input.enabled === false ? 0 : 1,
+      input.encryptedConfig,
+      now,
+      now
+    );
+    return this.getNotificationChannel(input.userId, id)!;
+  }
+
+  updateNotificationChannel(userId: string, channelId: string, input: {
+    label?: string | null;
+    enabled?: boolean;
+    encryptedConfig?: string;
+    lastDeliveryAt?: string | null;
+    lastError?: string | null;
+  }): NotificationChannelRecord | undefined {
+    const current = this.getNotificationChannel(userId, channelId);
+    if (!current) {
+      return undefined;
+    }
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      UPDATE notification_channels
+      SET label = ?,
+          enabled = ?,
+          encrypted_config = ?,
+          last_delivery_at = ?,
+          last_error = ?,
+          updated_at = ?
+      WHERE id = ? AND user_id = ?
+    `).run(
+      input.label === undefined ? current.label ?? null : input.label,
+      input.enabled === undefined ? (current.enabled ? 1 : 0) : (input.enabled ? 1 : 0),
+      input.encryptedConfig ?? current.encryptedConfig,
+      input.lastDeliveryAt === undefined ? current.lastDeliveryAt ?? null : input.lastDeliveryAt,
+      input.lastError === undefined ? current.lastError ?? null : input.lastError,
+      now,
+      channelId,
+      userId
+    );
+    return this.getNotificationChannel(userId, channelId);
+  }
+
+  touchNotificationChannelDelivery(channelId: string, input: {
+    lastDeliveryAt?: string;
+    lastError?: string | null;
+  }): void {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      UPDATE notification_channels
+      SET last_delivery_at = ?,
+          last_error = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(
+      input.lastDeliveryAt ?? now,
+      input.lastError ?? null,
+      now,
+      channelId
+    );
+  }
+
+  deleteNotificationChannel(userId: string, channelId: string): void {
+    this.db.prepare(`DELETE FROM notification_channels WHERE user_id = ? AND id = ?`).run(userId, channelId);
+  }
+
   private addColumnIfMissing(table: "users" | "user_settings", name: string, type: string): void {
     const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
     if (columns.some((column) => column.name === name)) {
@@ -1274,6 +1430,21 @@ function mapProxyEvent(row: SqlRow): ProxyEventRecord {
     ...(row.elapsed_ms !== null && row.elapsed_ms !== undefined ? { elapsedMs: Number(row.elapsed_ms) } : {}),
     ...(row.error_message ? { errorMessage: String(row.error_message) } : {}),
     createdAt: String(row.created_at)
+  };
+}
+
+function mapNotificationChannelRecord(row: SqlRow): NotificationChannelRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    platform: String(row.platform) as NotificationPlatform,
+    ...(row.label ? { label: String(row.label) } : {}),
+    enabled: Number(row.enabled ?? 1) === 1,
+    encryptedConfig: String(row.encrypted_config),
+    ...(row.last_delivery_at ? { lastDeliveryAt: String(row.last_delivery_at) } : {}),
+    ...(row.last_error ? { lastError: String(row.last_error) } : {}),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
   };
 }
 

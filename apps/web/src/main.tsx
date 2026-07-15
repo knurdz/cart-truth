@@ -192,6 +192,21 @@ type AppNotification = {
   relatedJobId?: string;
 };
 
+type NotificationPlatform = "slack" | "discord" | "telegram";
+
+type NotificationChannel = {
+  id: string;
+  platform: NotificationPlatform;
+  label?: string;
+  enabled: boolean;
+  configured: boolean;
+  webhookHost?: string;
+  lastDeliveryAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type DarazSessionActionResponse = {
   status: "needs_user_action";
   message?: string;
@@ -3363,6 +3378,8 @@ function SettingsPanel() {
       {message && <div className="fd-alert fd-alert--success">{message}</div>}
 
       <div className="fd-settings-grid">
+        <NotificationChannelsPanel />
+
         <div className="fd-panel-card">
           <div className="fd-card-header">
             <div>
@@ -3482,6 +3499,172 @@ function SettingsPanel() {
       </div>
     </div>
   );
+}
+
+function NotificationChannelsPanel() {
+  const [channels, setChannels] = useState<NotificationChannel[]>([]);
+  const [connecting, setConnecting] = useState<NotificationPlatform | "">("");
+  const [label, setLabel] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [botToken, setBotToken] = useState("");
+  const [chatId, setChatId] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  async function refresh() {
+    const response = await fetchJson<{ channels: NotificationChannel[] }>("/api/notification-channels");
+    setChannels(response.channels);
+  }
+
+  function resetForm() {
+    setConnecting("");
+    setLabel("");
+    setWebhookUrl("");
+    setBotToken("");
+    setChatId("");
+  }
+
+  async function connectChannel(event: React.FormEvent) {
+    event.preventDefault();
+    if (!connecting) {
+      return;
+    }
+    try {
+      const body = connecting === "telegram"
+        ? { platform: connecting, label: label || undefined, botToken, chatId }
+        : { platform: connecting, label: label || undefined, webhookUrl };
+      const response = await postJson<{ channel: NotificationChannel }>("/api/notification-channels", body);
+      setChannels((items) => [response.channel, ...items]);
+      setMessage(`${platformLabel(response.channel.platform)} connected.`);
+      resetForm();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function toggleChannel(channel: NotificationChannel) {
+    const response = await patchJson<{ channel: NotificationChannel }>(`/api/notification-channels/${channel.id}`, {
+      enabled: !channel.enabled
+    });
+    setChannels((items) => items.map((item) => item.id === channel.id ? response.channel : item));
+    setMessage(`${platformLabel(channel.platform)} ${response.channel.enabled ? "enabled" : "disabled"}.`);
+  }
+
+  async function testChannel(channel: NotificationChannel) {
+    try {
+      const result = await postJson<{ ok: boolean; error?: string }>(`/api/notification-channels/${channel.id}/test`, {});
+      if (result.ok) {
+        setMessage(`${platformLabel(channel.platform)} test sent.`);
+        await refresh();
+      } else {
+        setMessage(result.error ?? "Test delivery failed.");
+        await refresh();
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+      await refresh();
+    }
+  }
+
+  async function deleteChannel(channel: NotificationChannel) {
+    await fetchJson(`/api/notification-channels/${channel.id}`, { method: "DELETE" });
+    setChannels((items) => items.filter((item) => item.id !== channel.id));
+    setMessage(`${platformLabel(channel.platform)} disconnected.`);
+  }
+
+  return (
+    <div className="fd-panel-card fd-panel-card--wide">
+      <div className="fd-card-header">
+        <div>
+          <h3 className="fd-panel-title">Notification Channels</h3>
+          <p className="fd-card-desc">Get price and stock change alerts on Slack, Discord, or Telegram.</p>
+        </div>
+        <span className={`fd-status-pill ${channels.some((channel) => channel.enabled) ? "fd-status-pill--ok" : "fd-status-pill--warn"}`}>
+          {channels.length > 0 ? `${channels.filter((channel) => channel.enabled).length} active` : "None connected"}
+        </span>
+      </div>
+
+      {message && <div className="fd-alert fd-alert--success">{message}</div>}
+
+      {channels.length > 0 && (
+        <div className="fd-detail-list">
+          {channels.map((channel) => (
+            <div key={channel.id} className="fd-detail-row">
+              <span>{channel.label ?? platformLabel(channel.platform)}</span>
+              <div className="fd-btn-group">
+                <span className={`fd-status-pill ${channel.lastError ? "fd-status-pill--err" : channel.enabled ? "fd-status-pill--ok" : "fd-status-pill--warn"}`}>
+                  {channel.lastError ? "Error" : channel.enabled ? "On" : "Off"}
+                </span>
+                <button type="button" className="fd-btn fd-btn--ghost" onClick={() => void toggleChannel(channel)}>
+                  {channel.enabled ? "Disable" : "Enable"}
+                </button>
+                <button type="button" className="fd-btn fd-btn--ghost" onClick={() => void testChannel(channel)}>Test</button>
+                <button type="button" className="fd-btn fd-btn--ghost" onClick={() => void deleteChannel(channel)}>Disconnect</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!connecting ? (
+        <div className="fd-btn-group">
+          <button type="button" className="fd-btn fd-btn--primary" onClick={() => setConnecting("slack")}>Connect Slack</button>
+          <button type="button" className="fd-btn fd-btn--primary" onClick={() => setConnecting("discord")}>Connect Discord</button>
+          <button type="button" className="fd-btn fd-btn--primary" onClick={() => setConnecting("telegram")}>Connect Telegram</button>
+        </div>
+      ) : (
+        <form className="fd-form" onSubmit={(event) => void connectChannel(event)}>
+          <h4 className="fd-panel-title">Connect {platformLabel(connecting)}</h4>
+          <label className="fd-form-field">
+            <span className="fd-form-label">Label (optional)</span>
+            <input className="fd-form-input" value={label} onChange={(event) => setLabel(event.target.value)} placeholder={connecting === "slack" ? "#deals" : connecting === "discord" ? "deal-alerts" : "My Telegram"} />
+          </label>
+          {connecting === "telegram" ? (
+            <>
+              <label className="fd-form-field">
+                <span className="fd-form-label">Bot token</span>
+                <input className="fd-form-input" value={botToken} onChange={(event) => setBotToken(event.target.value)} placeholder="123456:ABC-DEF..." type="password" autoComplete="off" />
+              </label>
+              <label className="fd-form-field">
+                <span className="fd-form-label">Chat ID</span>
+                <input className="fd-form-input" value={chatId} onChange={(event) => setChatId(event.target.value)} placeholder="-1001234567890" />
+              </label>
+              <p className="fd-form-hint">Create a bot with BotFather, start a chat with it, then use @userinfobot or getUpdates to find your chat ID.</p>
+            </>
+          ) : (
+            <>
+              <label className="fd-form-field">
+                <span className="fd-form-label">Incoming webhook URL</span>
+                <input className="fd-form-input" value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} placeholder={connecting === "slack" ? "https://hooks.slack.com/services/..." : "https://discord.com/api/webhooks/..."} type="url" autoComplete="off" />
+              </label>
+              <p className="fd-form-hint">
+                {connecting === "slack"
+                  ? "In Slack, create an Incoming Webhook app and paste the webhook URL here."
+                  : "In Discord, open channel settings → Integrations → Webhooks and copy the webhook URL."}
+              </p>
+            </>
+          )}
+          <div className="fd-btn-group">
+            <button type="submit" className="fd-btn fd-btn--primary">Save connection</button>
+            <button type="button" className="fd-btn fd-btn--ghost" onClick={resetForm}>Cancel</button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function platformLabel(platform: NotificationPlatform): string {
+  if (platform === "slack") {
+    return "Slack";
+  }
+  if (platform === "discord") {
+    return "Discord";
+  }
+  return "Telegram";
 }
 
 function ApiKeysPanel() {

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-labelledby="title desc">
+  <title id="title">CartTruth logo</title>
+  <desc id="desc">CartTruth wordmark with a checkout cart and verification checkmark.</desc>
+  <defs>
+    <style>
+      .bg { fill: #07120c; }
+      .panel { fill: #0c1c13; stroke: #214a32; stroke-width: 2; }
+      .cart { fill: none; stroke: #82f28a; stroke-width: 13; stroke-linecap: round; stroke-linejoin: round; }
+      .check { fill: none; stroke: #f8c65a; stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; }
+      .title { font: 800 82px Arial, sans-serif; fill: #f8fff9; letter-spacing: 0; }
+      .tag { font: 500 25px Arial, sans-serif; fill: #b7d9c2; letter-spacing: 0; }
+      .pill { fill: #12281b; stroke: #316846; stroke-width: 1.5; }
+      .pillText { font: 700 18px Arial, sans-serif; fill: #82f28a; letter-spacing: 0; }
+      .line { stroke: #1f3b2a; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="300" rx="34" />
+  <rect class="panel" x="32" y="32" width="1136" height="236" rx="28" />
+
+  <g transform="translate(84 72)">
+    <rect x="0" y="0" width="156" height="156" rx="34" fill="#0a0f0a" stroke="#2c5f3c" stroke-width="3" />
+    <path class="cart" d="M34 44h80l-12 57H50L34 44Z" />
+    <path class="cart" d="M49 124h.2M103 124h.2" />
+    <path class="check" d="M78 83l18 18 41-47" />
+  </g>
+
+  <line class="line" x1="286" y1="72" x2="286" y2="228" />
+
+  <text class="title" x="330" y="139">CartTruth</text>
+  <text class="tag" x="334" y="184">Final-checkout price verification with proxy-aware evidence</text>
+
+  <g transform="translate(334 211)">
+    <rect class="pill" x="0" y="0" width="120" height="34" rx="17" />
+    <text class="pillText" x="22" y="23">Daraz MVP</text>
+    <rect class="pill" x="136" y="0" width="146" height="34" rx="17" />
+    <text class="pillText" x="158" y="23">TorchProxies</text>
+    <rect class="pill" x="298" y="0" width="92" height="34" rx="17" />
+    <text class="pillText" x="319" y="23">REST</text>
+    <rect class="pill" x="406" y="0" width="86" height="34" rx="17" />
+    <text class="pillText" x="429" y="23">MCP</text>
+  </g>
+</svg>

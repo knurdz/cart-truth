@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="430" viewBox="0 0 1180 430" role="img" aria-labelledby="title desc">
+  <title id="title">CartTruth checkout pipeline</title>
+  <desc id="desc">Step-by-step final checkout price verification pipeline from trigger to evidence, storage, and notification outputs.</desc>
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .step { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 14; }
+      .proxy { fill: #fff7ed; stroke: #f59e0b; stroke-width: 2; rx: 14; }
+      .safe { fill: #ecfdf5; stroke: #10b981; stroke-width: 2; rx: 14; }
+      .out { fill: #eff6ff; stroke: #3b82f6; stroke-width: 2; rx: 14; }
+      .n { font: 700 15px Arial, sans-serif; fill: #0f172a; }
+      .t { font: 13px Arial, sans-serif; fill: #334155; }
+      .h { font: 700 22px Arial, sans-serif; fill: #0f172a; }
+      .arrow { stroke: #475569; stroke-width: 2.4; fill: none; marker-end: url(#arrowhead); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#475569" />
+    </marker>
+  </defs>
+  <rect class="bg" width="1180" height="430" />
+  <text class="h" x="40" y="46">Final-checkout Verification Pipeline</text>
+
+  <rect class="step" x="40" y="95" width="150" height="110" />
+  <text class="n" x="64" y="128">1. Trigger</text>
+  <text class="t" x="64" y="156">Dashboard</text>
+  <text class="t" x="64" y="178">REST / MCP</text>
+  <text class="t" x="64" y="200">Scheduler</text>
+
+  <rect class="step" x="240" y="95" width="150" height="110" />
+  <text class="n" x="264" y="128">2. Lookup</text>
+  <text class="t" x="264" y="156">Normalize URL</text>
+  <text class="t" x="264" y="178">Read listing</text>
+  <text class="t" x="264" y="200">Queue job</text>
+
+  <rect class="proxy" x="440" y="95" width="150" height="110" />
+  <text class="n" x="464" y="128">3. Proxy</text>
+  <text class="t" x="464" y="156">Load profile</text>
+  <text class="t" x="464" y="178">Attach to browser</text>
+  <text class="t" x="464" y="200">Record event</text>
+
+  <rect class="step" x="640" y="95" width="150" height="110" />
+  <text class="n" x="664" y="128">4. Session</text>
+  <text class="t" x="664" y="156">Saved profile</text>
+  <text class="t" x="664" y="178">OTP/captcha if</text>
+  <text class="t" x="664" y="200">Daraz requires it</text>
+
+  <rect class="safe" x="840" y="95" width="150" height="110" />
+  <text class="n" x="864" y="128">5. Checkout</text>
+  <text class="t" x="864" y="156">Buy Now flow</text>
+  <text class="t" x="864" y="178">Safety guards</text>
+  <text class="t" x="864" y="200">Extract totals</text>
+
+  <rect class="out" x="1040" y="95" width="100" height="110" />
+  <text class="n" x="1060" y="128">6. Output</text>
+  <text class="t" x="1060" y="156">SQLite</text>
+  <text class="t" x="1060" y="178">Evidence</text>
+  <text class="t" x="1060" y="200">Alerts</text>
+
+  <line class="arrow" x1="190" y1="150" x2="240" y2="150" />
+  <line class="arrow" x1="390" y1="150" x2="440" y2="150" />
+  <line class="arrow" x1="590" y1="150" x2="640" y2="150" />
+  <line class="arrow" x1="790" y1="150" x2="840" y2="150" />
+  <line class="arrow" x1="990" y1="150" x2="1040" y2="150" />
+
+  <rect class="step" x="245" y="270" width="690" height="78" />
+  <text class="n" x="275" y="302">Shared processing layer</text>
+  <text class="t" x="275" y="328">Typed schemas, money parsing, expected-vs-observed comparison, job state, run history, proxy telemetry, and notification dispatch.</text>
+  <line class="arrow" x1="515" y1="205" x2="515" y2="270" />
+  <line class="arrow" x1="915" y1="205" x2="915" y2="270" />
+</svg>
+
